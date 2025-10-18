@@ -26,15 +26,15 @@ import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
 
 from .const import (
-    DEVICE_CIC_ID,
     DEVICE_BOILER_ID,
+    DEVICE_CIC_ID,
     DEVICE_FLOWMETER_ID,
     DEVICE_HEAT_BATTERY_ID,
     DEVICE_HEAT_CHARGER_ID,
     DEVICE_HEATPUMP_1_ID,
     DEVICE_HEATPUMP_2_ID,
-    DEVICE_THERMOSTAT_ID,
     DEVICE_LIST,
+    DEVICE_THERMOSTAT_ID,
     DOMAIN,
 )
 from .coordinator import QuattDataUpdateCoordinator
@@ -45,7 +45,7 @@ def create_heatpump_sensor_entity_descriptions(
     index: int, is_duo: bool = False
 ) -> list[QuattSensorEntityDescription]:
     """Create the heatpump sensor entity descriptions based on the index."""
-    prefix = 'hp1' if index == 0 else 'hp2'
+    prefix = "hp1" if index == 0 else "hp2"
 
     return [
         QuattSensorEntityDescription(
@@ -123,20 +123,18 @@ def create_heatpump_sensor_entity_descriptions(
             state_class="measurement",
             quatt_duo=is_duo,
         ),
-
+        QuattSensorEntityDescription(
+            name="Modbus slave ID",
+            key=f"{prefix}.modbusSlaveId",
+            icon="mdi:identifier",
+            entity_category=EntityCategory.DIAGNOSTIC,
+            quatt_duo=is_duo,
+        ),
         ## Remote (non-duplicated sensors only)
         QuattSensorEntityDescription(
             name="On",
             key=f"heatPumps.{index}.on",
             icon="mdi:power",
-            quatt_duo=is_duo,
-            quatt_mobile_api=True,
-        ),
-        QuattSensorEntityDescription(
-            name="Modbus slave ID",
-            key=f"heatPumps.{index}.modbusSlaveId",
-            icon="mdi:identifier",
-            entity_category=EntityCategory.DIAGNOSTIC,
             quatt_duo=is_duo,
             quatt_mobile_api=True,
         ),
@@ -357,7 +355,6 @@ SENSORS = {
             key="system.hostName",
             entity_category=EntityCategory.DIAGNOSTIC,
         ),
-
         ## Remote
         QuattSensorEntityDescription(
             name="Installation ID",
@@ -620,7 +617,6 @@ SENSORS = {
             state_class=SensorStateClass.MEASUREMENT,
             quatt_all_electric=True,
         ),
-
         ## Remote (non-duplicated sensors only)
         QuattSensorEntityDescription(
             name="Serial number",
@@ -696,7 +692,6 @@ SENSORS = {
             state_class=SensorStateClass.MEASUREMENT,
             quatt_all_electric=True,
         ),
-
         ## Remote (non-duplicated sensors only)
         QuattSensorEntityDescription(
             name="Serial number",
@@ -756,7 +751,6 @@ SENSORS = {
             state_class=SensorStateClass.MEASUREMENT,
             quatt_hybrid=True,
         ),
-
         ## Remote
         QuattSensorEntityDescription(
             name="Boiler power",
@@ -836,7 +830,6 @@ SENSORS = {
             suggested_display_precision=2,
             state_class=SensorStateClass.MEASUREMENT,
         ),
-
         ## Remote (non-duplicated sensors only)
         QuattSensorEntityDescription(
             name="Temperature outside",
@@ -870,7 +863,12 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_devices):
     async_add_devices(sensors)
 
 
-async def async_setup_sensor(hass: HomeAssistant, coordinator: QuattDataUpdateCoordinator, entry, remote: bool = False):
+async def async_setup_sensor(
+    hass: HomeAssistant,
+    coordinator: QuattDataUpdateCoordinator,
+    entry,
+    remote: bool = False,
+):
     """Set up the sensor platform."""
     registry = er.async_get(hass)
 
