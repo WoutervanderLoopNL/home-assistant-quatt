@@ -36,7 +36,7 @@ from .const import (
     DEVICE_HOME_BATTERY_ID,
     DEVICE_HOME_BATTERY_INSIGHTS_ID,
     DEVICE_HOME_BATTERY_SAVINGS_ID,
-    DEVICE_INSIGHTS_ID,
+    DEVICE_CIC_INSIGHTS_ID,
     DEVICE_THERMOSTAT_ID,
     DOMAIN,
     QuattDeviceKind,
@@ -985,7 +985,7 @@ SENSORS = {
             ),
         ),
     ],
-    DEVICE_INSIGHTS_ID: [
+    DEVICE_CIC_INSIGHTS_ID: [
         QuattSensorEntityDescription(
             name="Total heat pump heat",
             key="insights.totalHpHeat",
@@ -1453,8 +1453,8 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_devices):
     """Set up the sensor platform."""
     coordinators = hass.data[DOMAIN][entry.entry_id]
 
-    local_coordinator: QuattDataUpdateCoordinator | None = coordinators.get("local")
-    remote_coordinator: QuattDataUpdateCoordinator | None = coordinators.get("remote")
+    local_coordinator: QuattDataUpdateCoordinator | None = coordinators.get("cic_local")
+    remote_coordinator: QuattDataUpdateCoordinator | None = coordinators.get("cic_remote")
     home_battery_coordinator: QuattDataUpdateCoordinator | None = coordinators.get(
         "home_battery"
     )

@@ -45,8 +45,10 @@ GOOGLE_FIREBASE_CLIENT = (
     "H4sIAAAAAAAAAKtWykhNLCpJSk0sKVayio7VUSpLLSrOzM9TslIyUqoFAFyivEQfAAAA"
 )
 
-# Storage keys for remote connection
-STORAGE_KEY = "quatt_remote_storage"
+# Storage key for the CIC remote (mobile API) connection.
+# The *symbol* is CIC_-prefixed for clarity; the stored *value*
+# is kept as-is to avoid a user-visible migration.
+CIC_STORAGE_KEY = "quatt_remote_storage"
 STORAGE_VERSION = 1
 
 # Storage key prefix for home battery hubs
@@ -66,7 +68,7 @@ DEVICE_HEAT_CHARGER_ID = "heat_charger"
 DEVICE_HEATPUMP_1_ID = "heatpump_1"
 DEVICE_HEATPUMP_2_ID = "heatpump_2"
 DEVICE_THERMOSTAT_ID = "thermostat"
-DEVICE_INSIGHTS_ID = "insights"
+DEVICE_CIC_INSIGHTS_ID = "insights"
 DEVICE_HOME_BATTERY_ID = "home_battery"
 DEVICE_HOME_BATTERY_SAVINGS_ID = "home_battery_savings"
 DEVICE_HOME_BATTERY_INSIGHTS_ID = "home_battery_insights"
@@ -98,7 +100,7 @@ DEVICE_LIST = [
     {"name": "Heatpump 1", "id": DEVICE_HEATPUMP_1_ID, "kind": QuattDeviceKind.DEVICE},
     {"name": "Heatpump 2", "id": DEVICE_HEATPUMP_2_ID, "kind": QuattDeviceKind.DEVICE},
     {"name": "Thermostat", "id": DEVICE_THERMOSTAT_ID, "kind": QuattDeviceKind.DEVICE},
-    {"name": "Insights", "id": DEVICE_INSIGHTS_ID, "kind": QuattDeviceKind.SERVICE},
+    {"name": "Insights", "id": DEVICE_CIC_INSIGHTS_ID, "kind": QuattDeviceKind.SERVICE},
     {"name": "Home battery", "id": DEVICE_HOME_BATTERY_ID, "kind": QuattDeviceKind.HUB},
     {
         "name": "Home battery savings",

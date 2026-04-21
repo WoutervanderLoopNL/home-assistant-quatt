@@ -32,8 +32,8 @@ from .api import (
     QuattApiClientCommunicationError,
     QuattApiClientError,
 )
-from .api_local import QuattLocalApiClient
-from .api_remote import QuattRemoteApiClient
+from .api_local_cic import QuattCicLocalApiClient
+from .api_remote_cic import QuattCicRemoteApiClient
 from .api_remote_home_battery import QuattHomeBatteryApiClient
 from .const import (
     CARD_FILE,
@@ -46,15 +46,15 @@ from .const import (
     DEFAULT_REMOTE_SCAN_INTERVAL,
     DEVICE_CIC_ID,
     DOMAIN,
+    CIC_STORAGE_KEY,
     HOME_BATTERY_STORAGE_KEY,
     LOGGER,
     REMOTE_CONF_SCAN_INTERVAL,
-    STORAGE_KEY,
     STORAGE_VERSION,
 )
 from .coordinator_home_battery import QuattHomeBatteryDataUpdateCoordinator
-from .coordinator_local import QuattLocalDataUpdateCoordinator
-from .coordinator_remote import QuattRemoteDataUpdateCoordinator
+from .coordinator_local_cic import QuattCicLocalDataUpdateCoordinator
+from .coordinator_remote_cic import QuattCicRemoteDataUpdateCoordinator
 
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
@@ -111,11 +111,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinators: dict[
         str,
-        QuattLocalDataUpdateCoordinator
-        | QuattRemoteDataUpdateCoordinator
+        QuattCicLocalDataUpdateCoordinator
+        | QuattCicRemoteDataUpdateCoordinator
         | QuattHomeBatteryDataUpdateCoordinator
         | None,
-    ] = {"local": None, "remote": None, "home_battery": None}
+    ] = {"cic_local": None, "cic_remote": None, "home_battery": None}
 
     if is_home_battery_hub:
         # Home battery only hub - no local CIC, only the remote home battery API
@@ -145,12 +145,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await home_battery_coordinator.async_config_entry_first_refresh()
         coordinators["home_battery"] = home_battery_coordinator
     else:
-        local_client = QuattLocalApiClient(
+        local_client = QuattCicLocalApiClient(
             ip_address=entry.data[CONF_LOCAL_CIC],
             session=async_get_clientsession(hass),
         )
 
-        local_coordinator = QuattLocalDataUpdateCoordinator(
+        local_coordinator = QuattCicLocalDataUpdateCoordinator(
             hass=hass,
             update_interval=timedelta(
                 seconds=entry.options.get(
@@ -161,21 +161,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
         await local_coordinator.async_config_entry_first_refresh()
-        coordinators["local"] = local_coordinator
+        coordinators["cic_local"] = local_coordinator
 
         # Set up remote coordinator if configured
         if has_remote:
             cic = entry.data[CONF_REMOTE_CIC]
 
             # Create storage for tokens
-            store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry.unique_id}")
+            store = Store(hass, STORAGE_VERSION, f"{CIC_STORAGE_KEY}_{entry.unique_id}")
 
             # Load stored tokens
             stored_data = await store.async_load()
 
             # Create remote API client
             session = async_get_clientsession(hass)
-            remote_client = QuattRemoteApiClient(cic, session, store)
+            remote_client = QuattCicRemoteApiClient(cic, session, store)
 
             # Load tokens if they exist
             if stored_data:
@@ -189,7 +189,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Authenticate (will use existing tokens if available, or do full auth)
             if await remote_client.authenticate():
                 # Create remote coordinator only if authentication succeeded
-                remote_coordinator = QuattRemoteDataUpdateCoordinator(
+                remote_coordinator = QuattCicRemoteDataUpdateCoordinator(
                     hass=hass,
                     update_interval=timedelta(
                         minutes=entry.options.get(
@@ -200,7 +200,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
 
                 await remote_coordinator.async_config_entry_first_refresh()
-                coordinators["remote"] = remote_coordinator
+                coordinators["cic_remote"] = remote_coordinator
             else:
                 LOGGER.error("Failed to authenticate with Quatt remote API")
 
@@ -223,8 +223,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Find a remote coordinator to use for the service call
             remote_coordinator = None
             for coordinators_dict in hass.data[DOMAIN].values():
-                if coordinators_dict.get("remote"):
-                    remote_coordinator = coordinators_dict["remote"]
+                if coordinators_dict.get("cic_remote"):
+                    remote_coordinator = coordinators_dict["cic_remote"]
                     break
 
             if not remote_coordinator:
@@ -353,7 +353,7 @@ async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 async def _async_get_cic_name(hass: HomeAssistant, ip_address: str) -> str:
     """Validate credentials."""
-    client = QuattLocalApiClient(
+    client = QuattCicLocalApiClient(
         ip_address=ip_address,
         session=async_create_clientsession(hass),
     )
@@ -555,10 +555,10 @@ async def _migrate_v5_to_v6(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     # Always bump the entry version, even if no remote is configured
     if CONF_REMOTE_CIC in config_entry.data:
         old_store = Store(
-            hass, STORAGE_VERSION, f"{STORAGE_KEY}_{config_entry.entry_id}"
+            hass, STORAGE_VERSION, f"{CIC_STORAGE_KEY}_{config_entry.entry_id}"
         )
         new_store = Store(
-            hass, STORAGE_VERSION, f"{STORAGE_KEY}_{config_entry.unique_id}"
+            hass, STORAGE_VERSION, f"{CIC_STORAGE_KEY}_{config_entry.unique_id}"
         )
 
         new_data = await new_store.async_load()

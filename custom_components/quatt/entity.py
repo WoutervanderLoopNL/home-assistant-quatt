@@ -32,7 +32,7 @@ from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 import homeassistant.util.dt as dt_util
 
-from .api_remote import QuattRemoteApiClient
+from .api_remote_cic import QuattCicRemoteApiClient
 from .api_remote_home_battery import QuattHomeBatteryApiClient
 from .const import (
     ALL_ELECTRIC_SYSTEM,
@@ -45,7 +45,7 @@ from .const import (
 )
 from .coordinator import QuattDataUpdateCoordinator
 from .coordinator_home_battery import QuattHomeBatteryDataUpdateCoordinator
-from .coordinator_remote import QuattRemoteDataUpdateCoordinator
+from .coordinator_remote_cic import QuattCicRemoteDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -217,7 +217,7 @@ class QuattSelect(QuattEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
         # Only remote coordinator supports updating settings
-        if not isinstance(self.coordinator, QuattRemoteDataUpdateCoordinator):
+        if not isinstance(self.coordinator, QuattCicRemoteDataUpdateCoordinator):
             _LOGGER.error(
                 "Cannot update %s: only available via remote API",
                 self.entity_description.key,
@@ -250,7 +250,7 @@ class QuattSoundSelect(QuattSelect):
         """Perform paired day/night sound level update."""
 
         remote_client = self.coordinator.client
-        if not isinstance(remote_client, QuattRemoteApiClient):
+        if not isinstance(remote_client, QuattCicRemoteApiClient):
             _LOGGER.error("Cannot update %s: remote client required", self.entity_description.key)
             return False
 
@@ -336,7 +336,7 @@ class QuattSwitch(QuattEntity, SwitchEntity):
     async def _async_set_state(self, state: bool) -> None:
         """Set the switch state."""
         # Only remote coordinator supports updating settings
-        if not isinstance(self.coordinator, QuattRemoteDataUpdateCoordinator):
+        if not isinstance(self.coordinator, QuattCicRemoteDataUpdateCoordinator):
             _LOGGER.error(
                 "Cannot update %s: only available via remote API",
                 self.entity_description.key,
@@ -368,7 +368,7 @@ class QuattSettingSwitch(QuattSwitch):
     async def _perform_api_update(self, state: bool) -> bool:
         """Perform boolean setting update."""
         remote_client = self.coordinator.client
-        if not isinstance(remote_client, QuattRemoteApiClient):
+        if not isinstance(remote_client, QuattCicRemoteApiClient):
             _LOGGER.error("Cannot update %s: remote client required", self.entity_description.key)
             return False
 
@@ -456,7 +456,7 @@ class QuattNumber(QuattEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set the new value."""
         # Only remote coordinator supports updating settings
-        if not isinstance(self.coordinator, QuattRemoteDataUpdateCoordinator):
+        if not isinstance(self.coordinator, QuattCicRemoteDataUpdateCoordinator):
             _LOGGER.error(
                 "Cannot update %s: only available via remote API",
                 self.entity_description.key,
@@ -559,7 +559,7 @@ class QuattSettingNumber(QuattNumber):
     async def _perform_api_update(self, value: float) -> bool:
         """Perform numeric setting update."""
         remote_client = self.coordinator.client
-        if not isinstance(remote_client, QuattRemoteApiClient):
+        if not isinstance(remote_client, QuattCicRemoteApiClient):
             _LOGGER.error(
                 "Cannot update %s: remote client required", self.entity_description.key
             )

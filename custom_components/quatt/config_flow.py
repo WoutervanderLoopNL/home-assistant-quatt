@@ -33,8 +33,8 @@ from .api import (
     QuattApiClientCommunicationError,
     QuattApiClientError,
 )
-from .api_local import QuattLocalApiClient
-from .api_remote import QuattRemoteApiClient
+from .api_local_cic import QuattCicLocalApiClient
+from .api_remote_cic import QuattCicRemoteApiClient
 from .api_remote_home_battery import QuattHomeBatteryApiClient
 from .const import (
     CONF_HOME_BATTERY_ACCESS_KEY,
@@ -53,7 +53,7 @@ from .const import (
     REMOTE_CONF_SCAN_INTERVAL,
     REMOTE_MAX_SCAN_INTERVAL,
     REMOTE_MIN_SCAN_INTERVAL,
-    STORAGE_KEY,
+    CIC_STORAGE_KEY,
     STORAGE_VERSION,
 )
 
@@ -101,8 +101,8 @@ async def _async_step_pair_common(
         # - Config flow: flow.unique_id
         # - Options flow: flow.config_entry.unique_id
         store_key = flow.config_entry.unique_id if config_update else flow.unique_id
-        store = Store(flow.hass, STORAGE_VERSION, f"{STORAGE_KEY}_{store_key}")
-        api = QuattRemoteApiClient(flow.cic_name, session, store=store)
+        store = Store(flow.hass, STORAGE_VERSION, f"{CIC_STORAGE_KEY}_{store_key}")
+        api = QuattCicRemoteApiClient(flow.cic_name, session, store=store)
 
         first_name = user_input[CONF_FIRST_NAME]
         last_name = user_input[CONF_LAST_NAME]
@@ -173,7 +173,7 @@ async def _async_get_cic_name(
     hass: HomeAssistant, ip_address: str, retry_on_client_error: bool = False
 ) -> str:
     """Validate device and return the CIC id/name (system.hostName)."""
-    client = QuattLocalApiClient(
+    client = QuattCicLocalApiClient(
         ip_address=ip_address,
         session=async_create_clientsession(hass),
     )

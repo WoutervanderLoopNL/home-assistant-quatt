@@ -30,21 +30,3 @@ class QuattHomeBatteryDataUpdateCoordinator(QuattDataUpdateCoordinator):
                 return default
 
         return current_node
-
-    # The abstract "heatpump"-specific helpers don't apply to the home battery,
-    # but they must be implemented for the base class.
-    def heatpump_1_active(self) -> bool:
-        """Home battery hub has no heatpumps."""
-        return False
-
-    def heatpump_2_active(self) -> bool:
-        """Home battery hub has no heatpumps."""
-        return False
-
-    def all_electric_active(self) -> bool:
-        """Home battery hub has no heatpumps."""
-        return False
-
-    def is_boiler_opentherm(self) -> bool:
-        """Home battery hub has no boiler."""
-        return False

@@ -24,7 +24,7 @@ PAIRING_CHECK_INTERVAL = 2  # Seconds between checks
 _LOGGER = logging.getLogger(__name__)
 
 
-class QuattRemoteApiClient(QuattApiClient):
+class QuattCicRemoteApiClient(QuattApiClient):
     """Remote Quatt CIC API Client (via mobile API)."""
 
     def __init__(
