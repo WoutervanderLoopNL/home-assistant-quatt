@@ -19,7 +19,7 @@ CONF_LOCAL_CIC = "ip_address"
 
 # Home battery config keys
 CONF_HOME_BATTERY_SERIAL = "home_battery_serial"
-CONF_HOME_BATTERY_ACCESS_KEY = "home_battery_access_key"
+CONF_HOME_BATTERY_UUID = "home_battery_uuid"
 CONF_HOME_BATTERY_CHECK_CODE = "home_battery_check_code"
 
 # Remote API URLs (from kwatt)

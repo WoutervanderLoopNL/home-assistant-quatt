@@ -2,6 +2,14 @@
     "config": {
         "flow_title": "CIC: {name}",
         "step": {
+            "user": {
+                "title": "Quatt apparaat",
+                "description": "Welk type Quatt apparaat wil je toevoegen?",
+                "menu_options": {
+                    "local": "Warmtepomp (CIC)",
+                    "home_battery": "Thuisbatterij"
+                }
+            },
             "local": {
                 "description": "Stel lokale verbinding in met de Quatt warmtepomp.",
                 "data": {
@@ -11,6 +19,15 @@
                 "data_description": {
                     "ip_address": "Zonder http:// en poortnummer.",
                     "add_remote": "Voeg externe connectiviteit toe via de Quatt mobiele API om extra gegevens van de warmtepomp op te halen."
+                }
+            },
+            "home_battery": {
+                "title": "Koppel met een Quatt thuisbatterij",
+                "description": "Stel een Quatt thuisbatterij in via de mobiele API.\nVoer de **UUID**, het **serienummer** en de **controlecode** in die op het label van de batterij staan.\n\n![Locatie label thuisbatterij](/quatt_static/battery_pair.png)",
+                "data": {
+                    "home_battery_uuid": "UUID",
+                    "home_battery_serial": "Serienummer",
+                    "home_battery_check_code": "Controlecode"
                 }
             },
             "pair": {
@@ -29,6 +46,7 @@
             "auth": "Authenticatie mislukt. Controleer de inloggegevens.",
             "cannot_connect": "Verbinding met het Quatt-systeem mislukt. Controleer het IP-adres of het netwerk.",
             "pairing_timeout": "Koppeling timeout. Probeer het opnieuw en druk binnen 60 seconden op de knop op het CIC-apparaat.",
+            "home_battery_pair_failed": "Koppelen van thuisbatterij mislukt. Controleer de toegangssleutel, het serienummer en de controlecode.",
             "unknown": "Er is een onverwachte fout opgetreden. Probeer het opnieuw."
         },
         "abort": {

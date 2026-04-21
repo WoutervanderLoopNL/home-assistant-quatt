@@ -37,9 +37,9 @@ from .api_local_cic import QuattCicLocalApiClient
 from .api_remote_cic import QuattCicRemoteApiClient
 from .api_remote_home_battery import QuattHomeBatteryApiClient
 from .const import (
-    CONF_HOME_BATTERY_ACCESS_KEY,
     CONF_HOME_BATTERY_CHECK_CODE,
     CONF_HOME_BATTERY_SERIAL,
+    CONF_HOME_BATTERY_UUID,
     CONF_LOCAL_CIC,
     CONF_POWER_SENSOR,
     CONF_REMOTE_CIC,
@@ -287,10 +287,13 @@ class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
         """Handle setup of a stand-alone home battery hub."""
+        # Ensure static resources are registered for use in the form
+        await _async_register_static_resources(self.hass)
+
         _errors: dict[str, str] = {}
         if user_input is not None:
+            uuid = user_input[CONF_HOME_BATTERY_UUID].strip()
             serial = user_input[CONF_HOME_BATTERY_SERIAL].strip()
-            access_key = user_input[CONF_HOME_BATTERY_ACCESS_KEY].strip()
             check_code = user_input[CONF_HOME_BATTERY_CHECK_CODE].strip()
 
             # Use serial as the stable unique id to prevent duplicates
@@ -307,7 +310,7 @@ class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
             client = QuattHomeBatteryApiClient(session, store=store)
 
             success = await client.authenticate_and_pair(
-                access_key_uuid=access_key,
+                access_key_uuid=uuid,
                 serial_number=serial,
                 check_code=check_code,
             )
@@ -315,7 +318,7 @@ class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
                 _errors["base"] = "home_battery_pair_failed"
             else:
                 return self.async_create_entry(
-                    title=f"Quatt Home Battery {serial}",
+                    title=uuid,
                     data={
                         CONF_HOME_BATTERY_SERIAL: serial,
                     },
@@ -326,16 +329,14 @@ class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_HOME_BATTERY_SERIAL,
-                        default=(user_input or {}).get(CONF_HOME_BATTERY_SERIAL, ""),
+                        CONF_HOME_BATTERY_UUID,
+                        default=(user_input or {}).get(CONF_HOME_BATTERY_UUID, ""),
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                     ),
                     vol.Required(
-                        CONF_HOME_BATTERY_ACCESS_KEY,
-                        default=(user_input or {}).get(
-                            CONF_HOME_BATTERY_ACCESS_KEY, ""
-                        ),
+                        CONF_HOME_BATTERY_SERIAL,
+                        default=(user_input or {}).get(CONF_HOME_BATTERY_SERIAL, ""),
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                     ),

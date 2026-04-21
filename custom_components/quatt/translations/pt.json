@@ -2,6 +2,14 @@
     "config": {
         "flow_title": "CIC: {name}",
         "step": {
+            "user": {
+                "title": "Dispositivo Quatt",
+                "description": "Que tipo de dispositivo Quatt pretende adicionar?",
+                "menu_options": {
+                    "local": "Bomba de calor (CIC)",
+                    "home_battery": "Bateria doméstica"
+                }
+            },
             "local": {
                 "description": "Configurar ligação local à bomba de calor Quatt.",
                 "data": {
@@ -11,6 +19,15 @@
                 "data_description": {
                     "ip_address": "Sem http:// e sem porta.",
                     "add_remote": "Adicionar conectividade remota através da API móvel da Quatt para obter dados adicionais da bomba de calor."
+                }
+            },
+            "home_battery": {
+                "title": "Emparelhar com uma bateria doméstica Quatt",
+                "description": "Configurar uma bateria doméstica Quatt através da API móvel.\nIntroduza o **UUID**, o **número de série** e o **código de verificação** indicados na etiqueta da bateria.\n\n![Localização da etiqueta de emparelhamento da bateria](/quatt_static/battery_pair.png)",
+                "data": {
+                    "home_battery_uuid": "UUID",
+                    "home_battery_serial": "Número de série",
+                    "home_battery_check_code": "Código de verificação"
                 }
             },
             "add_remote": {
@@ -35,6 +52,7 @@
             "auth": "Falha na autenticação. Verifique as suas credenciais.",
             "cannot_connect": "Falha ao conectar ao sistema Quatt. Verifique o endereço IP ou a rede.",
             "pairing_timeout": "Tempo limite de emparelhamento. Tentar novamente e pressionar o botão no dispositivo CIC dentro de 60 segundos.",
+            "home_battery_pair_failed": "Falha no emparelhamento da bateria doméstica. Verifique a chave de acesso, o número de série e o código de verificação.",
             "unknown": "Ocorreu um erro inesperado. Tente novamente."
         },
         "abort": {
