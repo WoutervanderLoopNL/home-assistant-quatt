@@ -17,6 +17,11 @@ CONF_POWER_SENSOR = "power_sensor"
 CONF_REMOTE_CIC = "cic"
 CONF_LOCAL_CIC = "ip_address"
 
+# Home battery config keys
+CONF_HOME_BATTERY_SERIAL = "home_battery_serial"
+CONF_HOME_BATTERY_ACCESS_KEY = "home_battery_access_key"
+CONF_HOME_BATTERY_CHECK_CODE = "home_battery_check_code"
+
 # Remote API URLs (from kwatt)
 FIREBASE_INSTALLATIONS_URL = "https://firebaseinstallations.googleapis.com/v1/projects/quatt-production/installations"
 FIREBASE_REMOTE_CONFIG_URL = "https://firebaseremoteconfig.googleapis.com/v1/projects/1074628551428/namespaces/firebase:fetch"
@@ -44,6 +49,9 @@ GOOGLE_FIREBASE_CLIENT = (
 STORAGE_KEY = "quatt_remote_storage"
 STORAGE_VERSION = 1
 
+# Storage key prefix for home battery hubs
+HOME_BATTERY_STORAGE_KEY = "quatt_home_battery_storage"
+
 # System types
 DUO_HEATPUMP_SYSTEM = "Duo heatpump system"
 ALL_ELECTRIC_SYSTEM = "All electric system"
@@ -59,6 +67,10 @@ DEVICE_HEATPUMP_1_ID = "heatpump_1"
 DEVICE_HEATPUMP_2_ID = "heatpump_2"
 DEVICE_THERMOSTAT_ID = "thermostat"
 DEVICE_INSIGHTS_ID = "insights"
+DEVICE_HOME_BATTERY_ID = "home_battery"
+DEVICE_HOME_BATTERY_SAVINGS_ID = "home_battery_savings"
+DEVICE_HOME_BATTERY_INSIGHTS_ID = "home_battery_insights"
+DEVICE_HOME_BATTERY_ENERGY_FLOW_ID = "home_battery_energy_flow"
 
 
 class QuattDeviceKind(StrEnum):
@@ -87,6 +99,22 @@ DEVICE_LIST = [
     {"name": "Heatpump 2", "id": DEVICE_HEATPUMP_2_ID, "kind": QuattDeviceKind.DEVICE},
     {"name": "Thermostat", "id": DEVICE_THERMOSTAT_ID, "kind": QuattDeviceKind.DEVICE},
     {"name": "Insights", "id": DEVICE_INSIGHTS_ID, "kind": QuattDeviceKind.SERVICE},
+    {"name": "Home battery", "id": DEVICE_HOME_BATTERY_ID, "kind": QuattDeviceKind.HUB},
+    {
+        "name": "Home battery savings",
+        "id": DEVICE_HOME_BATTERY_SAVINGS_ID,
+        "kind": QuattDeviceKind.SERVICE,
+    },
+    {
+        "name": "Home battery insights",
+        "id": DEVICE_HOME_BATTERY_INSIGHTS_ID,
+        "kind": QuattDeviceKind.SERVICE,
+    },
+    {
+        "name": "Home battery energy flow",
+        "id": DEVICE_HOME_BATTERY_ENERGY_FLOW_ID,
+        "kind": QuattDeviceKind.SERVICE,
+    },
 ]
 
 

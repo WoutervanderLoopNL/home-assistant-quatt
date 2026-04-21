@@ -13,7 +13,13 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.components.number import NumberEntity, NumberEntityDescription
+from homeassistant.components.number import (
+    DEFAULT_MAX_VALUE,
+    DEFAULT_MIN_VALUE,
+    DEFAULT_STEP,
+    NumberEntity,
+    NumberEntityDescription,
+)
 from homeassistant.components.select import SelectEntity, SelectEntityDescription
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -27,6 +33,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 import homeassistant.util.dt as dt_util
 
 from .api_remote import QuattRemoteApiClient
+from .api_remote_home_battery import QuattHomeBatteryApiClient
 from .const import (
     ALL_ELECTRIC_SYSTEM,
     ATTRIBUTION,
@@ -37,6 +44,7 @@ from .const import (
     QuattDeviceKind,
 )
 from .coordinator import QuattDataUpdateCoordinator
+from .coordinator_home_battery import QuattHomeBatteryDataUpdateCoordinator
 from .coordinator_remote import QuattRemoteDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -471,6 +479,77 @@ class QuattNumber(QuattEntity, NumberEntity):
             raise RuntimeError(f"Failed to update {self.entity_description.key}")
 
         # Always refresh coordinator data after a successful update
+        await self.coordinator.async_request_refresh()
+
+
+class QuattHomeBatterySolarCapacityNumber(QuattNumber):
+    """Number entity for the home battery installation's ``solarCapacitykWp``.
+
+    The value is a flat scalar on the installation record (not wrapped in
+    ``{value,minValue,maxValue,increment}``), so min/max/step come from the
+    entity description instead of the coordinator data.
+    """
+
+    @property
+    def native_value(self) -> float | None:
+        """Read the scalar value directly from the coordinator data."""
+        return self.coordinator.get_value(self.entity_description.key)
+
+    @property
+    def native_min_value(self) -> float:
+        """Use the entity description's min value, else HA's default."""
+        value = self.entity_description.native_min_value
+        return value if value is not None else DEFAULT_MIN_VALUE
+
+    @property
+    def native_max_value(self) -> float:
+        """Use the entity description's max value, else HA's default."""
+        value = self.entity_description.native_max_value
+        return value if value is not None else DEFAULT_MAX_VALUE
+
+    @property
+    def native_step(self) -> float | None:
+        """Use the entity description's step, else HA's default."""
+        value = self.entity_description.native_step
+        return value if value is not None else DEFAULT_STEP
+
+    async def _perform_api_update(self, value: float) -> bool:
+        """Send the PATCH to the home battery installation endpoint."""
+        client = self.coordinator.client
+        if not isinstance(client, QuattHomeBatteryApiClient):
+            _LOGGER.error(
+                "Cannot update %s: home battery client required",
+                self.entity_description.key,
+            )
+            return False
+        return await client.update_solar_capacity(value)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set the new value via the home battery coordinator."""
+        if not isinstance(
+            self.coordinator, QuattHomeBatteryDataUpdateCoordinator
+        ):
+            _LOGGER.error(
+                "Cannot update %s: home battery coordinator required",
+                self.entity_description.key,
+            )
+            raise NotImplementedError(
+                f"Setting {self.entity_description.key} requires a home battery hub"
+            )
+
+        try:
+            success = await self._perform_api_update(value)
+        except Exception as err:
+            _LOGGER.exception("Error updating %s", self.entity_description.key)
+            raise RuntimeError(
+                f"Failed to update {self.entity_description.key}"
+            ) from err
+
+        if not success:
+            raise RuntimeError(
+                f"Failed to update {self.entity_description.key}"
+            )
+
         await self.coordinator.async_request_refresh()
 
 

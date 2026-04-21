@@ -34,9 +34,11 @@ from .api import (
 )
 from .api_local import QuattLocalApiClient
 from .api_remote import QuattRemoteApiClient
+from .api_remote_home_battery import QuattHomeBatteryApiClient
 from .const import (
     CARD_FILE,
     CARD_MOUNT,
+    CONF_HOME_BATTERY_SERIAL,
     CONF_LOCAL_CIC,
     CONF_POWER_SENSOR,
     CONF_REMOTE_CIC,
@@ -44,11 +46,13 @@ from .const import (
     DEFAULT_REMOTE_SCAN_INTERVAL,
     DEVICE_CIC_ID,
     DOMAIN,
+    HOME_BATTERY_STORAGE_KEY,
     LOGGER,
     REMOTE_CONF_SCAN_INTERVAL,
     STORAGE_KEY,
     STORAGE_VERSION,
 )
+from .coordinator_home_battery import QuattHomeBatteryDataUpdateCoordinator
 from .coordinator_local import QuattLocalDataUpdateCoordinator
 from .coordinator_remote import QuattRemoteDataUpdateCoordinator
 
@@ -100,68 +104,105 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up this integration using UI."""
     hass.data.setdefault(DOMAIN, {})
 
+    is_home_battery_hub = (
+        CONF_HOME_BATTERY_SERIAL in entry.data and CONF_LOCAL_CIC not in entry.data
+    )
     has_remote = CONF_REMOTE_CIC in entry.data
 
     coordinators: dict[
-        str, QuattLocalDataUpdateCoordinator | QuattRemoteDataUpdateCoordinator | None
-    ] = {"local": None, "remote": None}
+        str,
+        QuattLocalDataUpdateCoordinator
+        | QuattRemoteDataUpdateCoordinator
+        | QuattHomeBatteryDataUpdateCoordinator
+        | None,
+    ] = {"local": None, "remote": None, "home_battery": None}
 
-    local_client = QuattLocalApiClient(
-        ip_address=entry.data[CONF_LOCAL_CIC],
-        session=async_get_clientsession(hass),
-    )
-
-    local_coordinator = QuattLocalDataUpdateCoordinator(
-        hass=hass,
-        update_interval=timedelta(
-            seconds=entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_LOCAL_SCAN_INTERVAL)
-        ),
-        client=local_client,
-    )
-
-    await local_coordinator.async_config_entry_first_refresh()
-    coordinators["local"] = local_coordinator
-
-    # Set up remote coordinator if configured
-    if has_remote:
-        cic = entry.data[CONF_REMOTE_CIC]
-
-        # Create storage for tokens
-        store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry.unique_id}")
-
-        # Load stored tokens
-        stored_data = await store.async_load()
-
-        # Create remote API client
+    if is_home_battery_hub:
+        # Home battery only hub - no local CIC, only the remote home battery API
+        store = Store(
+            hass,
+            STORAGE_VERSION,
+            f"{HOME_BATTERY_STORAGE_KEY}_{entry.unique_id}",
+        )
+        stored_data = await store.async_load() or {}
         session = async_get_clientsession(hass)
-        remote_client = QuattRemoteApiClient(cic, session, store)
+        home_battery_client = QuattHomeBatteryApiClient(session, store=store)
+        home_battery_client.load_state(
+            id_token=stored_data.get("id_token"),
+            refresh_token=stored_data.get("refresh_token"),
+            installation_uuid=stored_data.get("installation_uuid"),
+        )
 
-        # Load tokens if they exist
-        if stored_data:
-            remote_client.load_tokens(
-                stored_data.get("id_token"),
-                stored_data.get("refresh_token"),
-                stored_data.get("installation_id"),
-            )
-            LOGGER.debug("Loaded stored tokens for CIC %s", cic)
+        home_battery_coordinator = QuattHomeBatteryDataUpdateCoordinator(
+            hass=hass,
+            update_interval=timedelta(
+                minutes=entry.options.get(
+                    REMOTE_CONF_SCAN_INTERVAL, DEFAULT_REMOTE_SCAN_INTERVAL
+                )
+            ),
+            client=home_battery_client,
+        )
+        await home_battery_coordinator.async_config_entry_first_refresh()
+        coordinators["home_battery"] = home_battery_coordinator
+    else:
+        local_client = QuattLocalApiClient(
+            ip_address=entry.data[CONF_LOCAL_CIC],
+            session=async_get_clientsession(hass),
+        )
 
-        # Authenticate (will use existing tokens if available, or do full auth)
-        if await remote_client.authenticate():
-            # Create remote coordinator only if authentication succeeded
-            remote_coordinator = QuattRemoteDataUpdateCoordinator(
-                hass=hass,
-                update_interval=timedelta(
-                    minutes=entry.options.get(
-                        REMOTE_CONF_SCAN_INTERVAL, DEFAULT_REMOTE_SCAN_INTERVAL
-                    )
-                ),
-                client=remote_client,
-            )
+        local_coordinator = QuattLocalDataUpdateCoordinator(
+            hass=hass,
+            update_interval=timedelta(
+                seconds=entry.options.get(
+                    CONF_SCAN_INTERVAL, DEFAULT_LOCAL_SCAN_INTERVAL
+                )
+            ),
+            client=local_client,
+        )
 
-            await remote_coordinator.async_config_entry_first_refresh()
-            coordinators["remote"] = remote_coordinator
-        else:
-            LOGGER.error("Failed to authenticate with Quatt remote API")
+        await local_coordinator.async_config_entry_first_refresh()
+        coordinators["local"] = local_coordinator
+
+        # Set up remote coordinator if configured
+        if has_remote:
+            cic = entry.data[CONF_REMOTE_CIC]
+
+            # Create storage for tokens
+            store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{entry.unique_id}")
+
+            # Load stored tokens
+            stored_data = await store.async_load()
+
+            # Create remote API client
+            session = async_get_clientsession(hass)
+            remote_client = QuattRemoteApiClient(cic, session, store)
+
+            # Load tokens if they exist
+            if stored_data:
+                remote_client.load_tokens(
+                    stored_data.get("id_token"),
+                    stored_data.get("refresh_token"),
+                    stored_data.get("installation_id"),
+                )
+                LOGGER.debug("Loaded stored tokens for CIC %s", cic)
+
+            # Authenticate (will use existing tokens if available, or do full auth)
+            if await remote_client.authenticate():
+                # Create remote coordinator only if authentication succeeded
+                remote_coordinator = QuattRemoteDataUpdateCoordinator(
+                    hass=hass,
+                    update_interval=timedelta(
+                        minutes=entry.options.get(
+                            REMOTE_CONF_SCAN_INTERVAL, DEFAULT_REMOTE_SCAN_INTERVAL
+                        )
+                    ),
+                    client=remote_client,
+                )
+
+                await remote_coordinator.async_config_entry_first_refresh()
+                coordinators["remote"] = remote_coordinator
+            else:
+                LOGGER.error("Failed to authenticate with Quatt remote API")
 
     # Store coordinators
     hass.data[DOMAIN][entry.entry_id] = coordinators
@@ -207,6 +248,91 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             DOMAIN,
             "get_insights",
             handle_get_insights,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+    if not hass.services.has_service(DOMAIN, "get_home_battery_insights"):
+
+        async def handle_get_home_battery_insights(
+            call: ServiceCall,
+        ) -> ServiceResponse:
+            """Handle the get_home_battery_insights service call."""
+            year = call.data.get("year")
+            month = call.data.get("month")
+            day = call.data.get("day")
+
+            # Find a home battery coordinator to use for the service call
+            home_battery_coordinator = None
+            for coordinators_dict in hass.data[DOMAIN].values():
+                if coordinators_dict.get("home_battery"):
+                    home_battery_coordinator = coordinators_dict["home_battery"]
+                    break
+
+            if not home_battery_coordinator:
+                LOGGER.error(
+                    "No home battery coordinator available for insights service"
+                )
+                return {
+                    "error": "No home battery configured. Pair a Quatt home battery first."
+                }
+
+            insights_data = (
+                await home_battery_coordinator.client.get_home_battery_insights(
+                    year=year,
+                    month=month,
+                    day=day,
+                )
+            )
+
+            if insights_data:
+                return insights_data
+            return {"error": "Failed to fetch home battery insights data"}
+
+        hass.services.async_register(
+            DOMAIN,
+            "get_home_battery_insights",
+            handle_get_home_battery_insights,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+    if not hass.services.has_service(DOMAIN, "get_energy_flow"):
+
+        async def handle_get_energy_flow(
+            call: ServiceCall,
+        ) -> ServiceResponse:
+            """Handle the get_energy_flow service call."""
+            year = call.data.get("year")
+            month = call.data.get("month")
+            day = call.data.get("day")
+
+            home_battery_coordinator = None
+            for coordinators_dict in hass.data[DOMAIN].values():
+                if coordinators_dict.get("home_battery"):
+                    home_battery_coordinator = coordinators_dict["home_battery"]
+                    break
+
+            if not home_battery_coordinator:
+                LOGGER.error(
+                    "No home battery coordinator available for energy flow service"
+                )
+                return {
+                    "error": "No home battery configured. Pair a Quatt home battery first."
+                }
+
+            flow_data = await home_battery_coordinator.client.get_energy_flow(
+                year=year,
+                month=month,
+                day=day,
+            )
+
+            if flow_data:
+                return flow_data
+            return {"error": "Failed to fetch energy flow data"}
+
+        hass.services.async_register(
+            DOMAIN,
+            "get_energy_flow",
+            handle_get_energy_flow,
             supports_response=SupportsResponse.ONLY,
         )
 

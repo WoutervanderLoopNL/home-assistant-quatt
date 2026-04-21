@@ -2,6 +2,14 @@
     "config": {
         "flow_title": "CIC: {name}",
         "step": {
+            "user": {
+                "title": "Quatt device",
+                "description": "What kind of Quatt device do you want to add?",
+                "menu_options": {
+                    "local": "Heatpump (CIC)",
+                    "home_battery": "Home battery"
+                }
+            },
             "local": {
                 "description": "Set up local connection to the Quatt heatpump.",
                 "data": {
@@ -21,6 +29,15 @@
                     "last_name": "Last name"
                 }
             },
+            "home_battery": {
+                "title": "Pair with a Quatt home battery",
+                "description": "Pair a Quatt home battery via the mobile API.\nYou can find the access key, serial number and check code on the battery label or in the Quatt mobile app.",
+                "data": {
+                    "home_battery_access_key": "Access key",
+                    "home_battery_serial": "Serial number",
+                    "home_battery_check_code": "Check code"
+                }
+            },
             "confirm": {
                 "description": "Press Submit to confirm setup."
             }
@@ -29,6 +46,7 @@
             "auth": "Authentication failed. Please check your credentials.",
             "cannot_connect": "Cannot connect to your local CIC. Check the IP address.",
             "pairing_timeout": "Pairing timeout. Please try again and press the button on the CIC device within 60 seconds.",
+            "home_battery_pair_failed": "Home battery pairing failed. Please check the access key, serial number and check code.",
             "unknown": "An unexpected error occurred. Please try again."
         },
         "abort": {

@@ -35,13 +35,18 @@ from .api import (
 )
 from .api_local import QuattLocalApiClient
 from .api_remote import QuattRemoteApiClient
+from .api_remote_home_battery import QuattHomeBatteryApiClient
 from .const import (
+    CONF_HOME_BATTERY_ACCESS_KEY,
+    CONF_HOME_BATTERY_CHECK_CODE,
+    CONF_HOME_BATTERY_SERIAL,
     CONF_LOCAL_CIC,
     CONF_POWER_SENSOR,
     CONF_REMOTE_CIC,
     DEFAULT_LOCAL_SCAN_INTERVAL,
     DEFAULT_REMOTE_SCAN_INTERVAL,
     DOMAIN,
+    HOME_BATTERY_STORAGE_KEY,
     LOCAL_MAX_SCAN_INTERVAL,
     LOCAL_MIN_SCAN_INTERVAL,
     LOGGER,
@@ -202,8 +207,11 @@ class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
         self,
         user_input: dict | None = None,
     ) -> ConfigFlowResult:
-        """Handle a flow initialized by the user - start with local setup."""
-        return await self.async_step_local()
+        """Handle a flow initialized by the user - pick heatpump or home battery."""
+        return self.async_show_menu(
+            step_id="user",
+            menu_options=["local", "home_battery"],
+        )
 
     async def async_step_local(
         self,
@@ -273,6 +281,75 @@ class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
         """Handle pairing step in the config flow."""
         return await _async_step_pair_common(
             self, config_update=False, user_input=user_input
+        )
+
+    async def async_step_home_battery(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Handle setup of a stand-alone home battery hub."""
+        _errors: dict[str, str] = {}
+        if user_input is not None:
+            serial = user_input[CONF_HOME_BATTERY_SERIAL].strip()
+            access_key = user_input[CONF_HOME_BATTERY_ACCESS_KEY].strip()
+            check_code = user_input[CONF_HOME_BATTERY_CHECK_CODE].strip()
+
+            # Use serial as the stable unique id to prevent duplicates
+            unique_id = f"home_battery_{serial}"
+            await self.async_set_unique_id(unique_id)
+            self._abort_if_unique_id_configured()
+
+            session = async_create_clientsession(self.hass)
+            store = Store(
+                self.hass,
+                STORAGE_VERSION,
+                f"{HOME_BATTERY_STORAGE_KEY}_{unique_id}",
+            )
+            client = QuattHomeBatteryApiClient(session, store=store)
+
+            success = await client.authenticate_and_pair(
+                access_key_uuid=access_key,
+                serial_number=serial,
+                check_code=check_code,
+            )
+            if not success:
+                _errors["base"] = "home_battery_pair_failed"
+            else:
+                return self.async_create_entry(
+                    title=f"Quatt Home Battery {serial}",
+                    data={
+                        CONF_HOME_BATTERY_SERIAL: serial,
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="home_battery",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_HOME_BATTERY_SERIAL,
+                        default=(user_input or {}).get(CONF_HOME_BATTERY_SERIAL, ""),
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                    ),
+                    vol.Required(
+                        CONF_HOME_BATTERY_ACCESS_KEY,
+                        default=(user_input or {}).get(
+                            CONF_HOME_BATTERY_ACCESS_KEY, ""
+                        ),
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                    ),
+                    vol.Required(
+                        CONF_HOME_BATTERY_CHECK_CODE,
+                        default=(user_input or {}).get(
+                            CONF_HOME_BATTERY_CHECK_CODE, ""
+                        ),
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+                    ),
+                }
+            ),
+            errors=_errors,
         )
 
     async def async_step_dhcp(
@@ -397,6 +474,13 @@ class QuattOptionsFlowHandler(OptionsFlow):
 
     async def async_step_init(self, user_input=None) -> ConfigFlowResult:
         """Manage the options."""
+        # Home battery entries use a simpler options form
+        if (
+            CONF_HOME_BATTERY_SERIAL in self.config_entry.data
+            and CONF_LOCAL_CIC not in self.config_entry.data
+        ):
+            return await self._async_step_init_home_battery(user_input)
+
         _errors = {}
 
         # Retrieve the current value of CONF_POWER_SENSOR from options
@@ -488,4 +572,30 @@ class QuattOptionsFlowHandler(OptionsFlow):
         """Handle pairing step in the options flow."""
         return await _async_step_pair_common(
             self, config_update=True, user_input=user_input
+        )
+
+    async def _async_step_init_home_battery(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Options form for a stand-alone home battery hub."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        schema_dict = {
+            vol.Required(
+                REMOTE_CONF_SCAN_INTERVAL,
+                default=self.config_entry.options.get(
+                    REMOTE_CONF_SCAN_INTERVAL, DEFAULT_REMOTE_SCAN_INTERVAL
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=REMOTE_MIN_SCAN_INTERVAL,
+                    max=REMOTE_MAX_SCAN_INTERVAL,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+        }
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(schema_dict),
         )

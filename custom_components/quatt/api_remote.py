@@ -1,32 +1,22 @@
-"""Remote Quatt API Client."""
+"""Remote Quatt CIC (heatpump) API client.
+
+Only contains CIC-specific endpoints (pair, installation lookup, CIC data,
+settings, insights). Authentication is delegated to
+:class:`QuattRemoteAuthClient`.
+"""
 
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-import json
 import logging
 from typing import Any
 
 import aiohttp
 
 from .api import QuattApiClient
-from .const import (
-    FIREBASE_ACCOUNT_INFO_URL,
-    FIREBASE_INSTALLATIONS_URL,
-    FIREBASE_REMOTE_CONFIG_URL,
-    FIREBASE_SIGNUP_URL,
-    FIREBASE_TOKEN_URL,
-    GOOGLE_ANDROID_CERT,
-    GOOGLE_ANDROID_PACKAGE,
-    GOOGLE_API_KEY,
-    GOOGLE_APP_ID,
-    GOOGLE_APP_INSTANCE_ID,
-    GOOGLE_CLIENT_VERSION,
-    GOOGLE_FIREBASE_CLIENT,
-    INSIGHTS_REMOTE_SCAN_INTERVAL,
-    QUATT_API_BASE_URL,
-)
+from .api_remote_auth import QuattRemoteAuthClient
+from .const import INSIGHTS_REMOTE_SCAN_INTERVAL
 
 PAIRING_TIMEOUT = 60  # Seconds to wait for button press
 PAIRING_CHECK_INTERVAL = 2  # Seconds between checks
@@ -35,22 +25,20 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class QuattRemoteApiClient(QuattApiClient):
-    """Remote Quatt API Client (via mobile API)."""
+    """Remote Quatt CIC API Client (via mobile API)."""
 
     def __init__(
         self,
         cic: str,
         session: aiohttp.ClientSession,
         store=None,
+        auth: QuattRemoteAuthClient | None = None,
     ) -> None:
-        """Initialize the remote API client."""
+        """Initialize the remote CIC API client."""
         self.cic = cic
         self._session = session
         self._store = store
-        self._id_token: str | None = None
-        self._refresh_token: str | None = None
-        self._fid: str | None = None
-        self._firebase_auth_token: str | None = None
+        self._auth = auth or QuattRemoteAuthClient(session, store=store)
         self._installation_id: str | None = None
         self._pairing_completed: bool = False
         # Insights cache keyed by request parameters: key -> (expires_at, result_dict)
@@ -58,386 +46,116 @@ class QuattRemoteApiClient(QuattApiClient):
             tuple[str, str, bool], tuple[datetime, dict[str, Any]]
         ] = {}
 
+    @property
+    def auth(self) -> QuattRemoteAuthClient:
+        """Return the shared auth client."""
+        return self._auth
+
     def load_tokens(
         self,
         id_token: str | None,
         refresh_token: str | None,
         installation_id: str | None,
     ) -> None:
-        """Load tokens from storage."""
-        self._id_token = id_token
-        self._refresh_token = refresh_token
+        """Load tokens and CIC installation id from storage."""
+        self._auth.load_tokens(id_token, refresh_token)
         self._installation_id = installation_id
-        if id_token:
-            _LOGGER.debug("Tokens loaded from storage")
 
-    async def _save_tokens(self) -> None:
-        """Save tokens to storage."""
+    async def _save_state(self) -> None:
+        """Persist auth tokens and CIC installation id."""
+        await self._auth.save_tokens()
         if self._store:
-            await self._store.async_save(
-                {
-                    "id_token": self._id_token,
-                    "refresh_token": self._refresh_token,
-                    "installation_id": self._installation_id,
-                }
-            )
-            _LOGGER.debug("Tokens saved to storage")
+            existing = await self._store.async_load() or {}
+            existing["installation_id"] = self._installation_id
+            await self._store.async_save(existing)
 
     async def authenticate(
         self, first_name: str = "HomeAssistant", last_name: str = "User"
     ) -> bool:
-        """Authenticate with Firebase and Quatt API."""
-        try:
-            # Check if we have existing tokens
-            if self._id_token and self._refresh_token:
-                _LOGGER.debug("Using existing tokens")
-                # Try to validate token by getting CIC data
-                cic_data = await self.get_cic_data()
+        """Authenticate and pair with the CIC device.
 
+        Backward compatible with the pre-split flow: reuse existing tokens when
+        available, refresh when expired, otherwise sign up a new user and run
+        the pairing handshake.
+        """
+        try:
+            if self._auth.is_authenticated:
+                # Try existing tokens first (auth.request handles 401/403 refresh)
+                cic_data = await self.get_cic_data()
                 if cic_data:
                     _LOGGER.info("Successfully authenticated with existing tokens")
                     return True
 
-                # Token might be expired, try refresh
-                _LOGGER.debug("Existing token failed, attempting refresh")
-                if await self.refresh_token():
-                    await self._save_tokens()
-                    # Verify refreshed token works
+                # An explicit refresh + retry as a last effort before full re-signup
+                if await self._auth.refresh_token():
+                    await self._save_state()
                     cic_data = await self.get_cic_data()
                     if cic_data:
-                        _LOGGER.info("Successfully authenticated with refreshed token")
+                        _LOGGER.info(
+                            "Successfully authenticated with refreshed token"
+                        )
                         return True
 
-                # Refresh failed, fall through to full auth
-                _LOGGER.warning("Token refresh failed, performing full authentication")
+                # Existing tokens no longer usable - reset and fall through
+                _LOGGER.warning(
+                    "Existing tokens could not be validated, re-pairing with CIC"
+                )
+                self._auth.load_tokens(None, None)
+                self._installation_id = None
 
-            # Full authentication flow (needed for initial setup or when tokens fail)
-            # Step 1: Get Firebase Installation ID
-            if not await self._get_firebase_installation():
-                return False
-
-            # Step 2: Fetch Firebase Remote Config
-            if not await self._firebase_fetch():
-                return False
-
-            # Step 3: Sign up new user (anonymous)
-            if not await self._signup_new_user():
-                return False
-
-            # Step 4: Get account information
-            if not await self._get_account_info():
-                return False
-
-            # Step 5: Update user profile
-            if not await self._update_user_profile(
+            # Full authentication flow (signup + profile)
+            if not await self._auth.ensure_authenticated(
                 first_name=first_name, last_name=last_name
             ):
                 return False
 
-            # Step 6: Request pairing with CIC
+            # Pair with the CIC device
             if not await self._request_pair():
                 return False
-
-            # Step 7: Wait for user to press button on CIC and verify pairing
             if not await self._wait_for_pairing():
                 return False
 
-            # Step 8: Get installation ID
-            if not await self._get_installation_id():
+            # Resolve installation id from installations list
+            if not await self._resolve_installation_id():
                 return False
 
-            # Save tokens after successful authentication
-            await self._save_tokens()
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Authentication failed - network error: %s", err)
-            return False
-        except TimeoutError as err:
-            _LOGGER.error("Authentication failed - timeout: %s", err)
-            return False
-        except json.JSONDecodeError as err:
-            _LOGGER.error("Authentication failed - invalid JSON response: %s", err)
+            await self._save_state()
+        except (aiohttp.ClientError, TimeoutError) as err:
+            _LOGGER.error("Authentication failed: %s", err)
             return False
         else:
-            _LOGGER.info("Successfully authenticated with Quatt API")
+            _LOGGER.info("Successfully authenticated with Quatt remote API (CIC)")
             return True
 
-    async def _get_firebase_installation(self) -> bool:
-        """Get Firebase Installation ID and auth token."""
-        headers = {
-            "X-Android-Cert": GOOGLE_ANDROID_CERT,
-            "X-Android-Package": GOOGLE_ANDROID_PACKAGE,
-            "x-firebase-client": GOOGLE_FIREBASE_CLIENT,
-            "x-goog-api-key": GOOGLE_API_KEY,
-        }
-
-        payload = {
-            "fid": GOOGLE_APP_INSTANCE_ID,
-            "appId": GOOGLE_APP_ID,
-            "authVersion": "FIS_v2",
-            "sdkVersion": "a:19.0.1",
-        }
-
-        try:
-            async with self._session.post(
-                FIREBASE_INSTALLATIONS_URL,
-                json=payload,
-                headers=headers,
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    self._fid = data.get("fid")
-                    auth_token = data.get("authToken", {})
-                    self._firebase_auth_token = auth_token.get("token")
-                    _LOGGER.debug("Firebase installation successful")
-                    return True
-                _LOGGER.error("Firebase installation failed: %s", await response.text())
-                return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Firebase installation error - network error: %s", err)
-            return False
-        except TimeoutError as err:
-            _LOGGER.error("Firebase installation error - timeout: %s", err)
-            return False
-        except json.JSONDecodeError as err:
-            _LOGGER.error(
-                "Firebase installation error - invalid JSON response: %s", err
-            )
-            return False
-
-    async def _firebase_fetch(self) -> bool:
-        """Fetch Firebase Remote Config."""
-        if not self._firebase_auth_token:
-            return False
-
-        headers = {
-            "X-Android-Cert": GOOGLE_ANDROID_CERT,
-            "X-Android-Package": GOOGLE_ANDROID_PACKAGE,
-            "X-Goog-Api-Key": GOOGLE_API_KEY,
-            "X-Google-GFE-Can-Retry": "yes",
-            "X-Goog-Firebase-Installations-Auth": self._firebase_auth_token,
-            "X-Firebase-RC-Fetch-Type": "BASE/1",
-        }
-
-        payload = {
-            "appVersion": "1.42.0",
-            "firstOpenTime": "2025-10-14T15:00:00.000Z",
-            "timeZone": "Europe/Amsterdam",
-            "appInstanceIdToken": self._firebase_auth_token,
-            "languageCode": "en-US",
-            "appBuild": "964",
-            "appInstanceId": GOOGLE_APP_INSTANCE_ID,
-            "countryCode": "US",
-            "analyticsUserProperties": {},
-            "appId": GOOGLE_APP_ID,
-            "platformVersion": "33",
-            "sdkVersion": "23.0.1",
-            "packageName": GOOGLE_ANDROID_PACKAGE,
-        }
-
-        try:
-            async with self._session.post(
-                FIREBASE_REMOTE_CONFIG_URL,
-                json=payload,
-                headers=headers,
-            ) as response:
-                if response.status == 200:
-                    _LOGGER.debug("Firebase remote config fetched successfully")
-                    return True
-                _LOGGER.error(
-                    "Firebase remote config fetch failed: %s", await response.text()
-                )
-                return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Firebase remote config fetch error - network error: %s", err)
-            return False
-        except TimeoutError as err:
-            _LOGGER.error("Firebase remote config fetch error - timeout: %s", err)
-            return False
-        except json.JSONDecodeError as err:
-            _LOGGER.error(
-                "Firebase remote config fetch error - invalid JSON response: %s", err
-            )
-            return False
-
-    def _get_headers(self):
-        """Set common headers for Firebase requests."""
-        return {
-            "X-Android-Cert": GOOGLE_ANDROID_CERT,
-            "X-Android-Package": GOOGLE_ANDROID_PACKAGE,
-            "X-Client-Version": GOOGLE_CLIENT_VERSION,
-            "X-Firebase-GMPID": GOOGLE_APP_ID,
-            "X-Firebase-Client": GOOGLE_FIREBASE_CLIENT,
-        }
-
-    async def _signup_new_user(self) -> bool:
-        """Sign up new anonymous user with Firebase."""
-        headers = self._get_headers()
-        payload = {"clientType": "CLIENT_TYPE_ANDROID"}
-        url = f"{FIREBASE_SIGNUP_URL}?key={GOOGLE_API_KEY}"
-
-        try:
-            async with self._session.post(
-                url,
-                json=payload,
-                headers=headers,
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    self._id_token = data.get("idToken")
-                    self._refresh_token = data.get("refreshToken")
-                    _LOGGER.debug("User signup successful")
-                    return True
-                _LOGGER.error("User signup failed: %s", await response.text())
-                return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("User signup error - network error: %s", err)
-            return False
-        except TimeoutError as err:
-            _LOGGER.error("User signup error - timeout: %s", err)
-            return False
-        except json.JSONDecodeError as err:
-            _LOGGER.error("User signup error - invalid JSON response: %s", err)
-            return False
-
-    async def _get_account_info(self) -> bool:
-        """Get account information from Firebase."""
-        if not self._id_token:
-            return False
-
-        headers = self._get_headers()
-        payload = {"idToken": self._id_token}
-        url = f"{FIREBASE_ACCOUNT_INFO_URL}?key={GOOGLE_API_KEY}"
-
-        try:
-            async with self._session.post(
-                url,
-                json=payload,
-                headers=headers,
-            ) as response:
-                if response.status == 200:
-                    _LOGGER.debug("Account info retrieved successfully")
-                    return True
-                _LOGGER.error("Get account info failed: %s", await response.text())
-                return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Get account info error - network error: %s", err)
-            return False
-        except TimeoutError as err:
-            _LOGGER.error("Get account info error - timeout: %s", err)
-            return False
-        except json.JSONDecodeError as err:
-            _LOGGER.error("Get account info error - invalid JSON response: %s", err)
-            return False
-
-    async def _update_user_profile(self, first_name: str, last_name: str) -> bool:
-        """Update user profile with name."""
-        if not self._id_token:
-            return False
-
-        headers = {"Authorization": f"Bearer {self._id_token}"}
-        payload = {"firstName": first_name, "lastName": last_name}
-        url = f"{QUATT_API_BASE_URL}/me"
-
-        try:
-            async with self._session.put(
-                url,
-                json=payload,
-                headers=headers,
-            ) as response:
-                if response.status in (200, 201):
-                    _LOGGER.debug(
-                        "User profile updated with firstName: %s, lastName: %s",
-                        first_name,
-                        last_name,
-                    )
-                    return True
-                _LOGGER.error("User profile update failed: %s", await response.text())
-                return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("User profile update error - network error: %s", err)
-            return False
-        except TimeoutError as err:
-            _LOGGER.error("User profile update error - timeout: %s", err)
-            return False
-        except json.JSONDecodeError as err:
-            _LOGGER.error("User profile update error - invalid JSON response: %s", err)
-            return False
-
     async def _request_pair(self) -> bool:
-        """Request pairing with CIC device."""
-        if not self._id_token:
-            return False
-
-        headers = {"Authorization": f"Bearer {self._id_token}"}
-        payload = {}
-        url = f"{QUATT_API_BASE_URL}/me/cic/{self.cic}/requestPair"
-
-        try:
-            async with self._session.post(
-                url,
-                json=payload,
-                headers=headers,
-            ) as response:
-                if response.status in (200, 201, 204):
-                    _LOGGER.debug("Pairing request successful")
-                    return True
-                _LOGGER.error("Pairing request failed: %s", await response.text())
-                return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Pairing request error - network error: %s", err)
-            return False
-        except TimeoutError as err:
-            _LOGGER.error("Pairing request error - timeout: %s", err)
-            return False
-        except json.JSONDecodeError as err:
-            _LOGGER.error("Pairing request error - invalid JSON response: %s", err)
-            return False
+        """Request pairing with the CIC device."""
+        status, _data = await self._auth.request(
+            "POST",
+            f"/me/cic/{self.cic}/requestPair",
+            json_body={},
+            expected_statuses=(200, 201, 204),
+            retry_on_auth_error=False,
+        )
+        return status in (200, 201, 204)
 
     async def _wait_for_pairing(self) -> bool:
-        """Wait for user to press button on CIC device and verify pairing."""
-        if not self._id_token:
-            return False
-
+        """Poll for the user pressing the CIC button to confirm the pairing."""
         _LOGGER.info("Waiting for user to press button on CIC device")
 
-        headers = {"Authorization": f"Bearer {self._id_token}"}
-        url = f"{QUATT_API_BASE_URL}/me"
-
-        # Poll for up to PAIRING_TIMEOUT seconds
         start_time = asyncio.get_event_loop().time()
         while (asyncio.get_event_loop().time() - start_time) < PAIRING_TIMEOUT:
-            try:
-                async with self._session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        # Check if CIC is in the user's account
-                        result = data.get("result", {})
-                        cic_ids = result.get("cicIds", [])
+            status, data = await self._auth.request(
+                "GET", "/me", retry_on_auth_error=False
+            )
+            if status == 200 and data is not None:
+                result = data.get("result", {}) if isinstance(data, dict) else {}
+                cic_ids = result.get("cicIds", []) if isinstance(result, dict) else []
+                if cic_ids and self.cic in cic_ids:
+                    _LOGGER.info("Pairing completed successfully")
+                    self._pairing_completed = True
+                    return True
+                _LOGGER.debug("Pairing not yet completed, waiting")
 
-                        if cic_ids and self.cic in cic_ids:
-                            _LOGGER.info("Pairing completed successfully!")
-                            self._pairing_completed = True
-                            return True
-
-                        _LOGGER.debug("Pairing not yet completed, waiting")
-                    else:
-                        _LOGGER.warning(
-                            "Failed to check pairing status: %s", await response.text()
-                        )
-            except aiohttp.ClientError as err:
-                _LOGGER.warning(
-                    "Error checking pairing status - network error: %s", err
-                )
-            except TimeoutError as err:
-                _LOGGER.warning("Error checking pairing status - timeout: %s", err)
-            except json.JSONDecodeError as err:
-                _LOGGER.warning("Error checking pairing status - invalid JSON: %s", err)
-            except KeyError as err:
-                _LOGGER.warning(
-                    "Error checking pairing status - missing key in response: %s", err
-                )
-
-            # Wait before checking again
             await asyncio.sleep(PAIRING_CHECK_INTERVAL)
 
         _LOGGER.error(
@@ -446,17 +164,13 @@ class QuattRemoteApiClient(QuattApiClient):
         )
         return False
 
-    async def _get_installation_id(self) -> bool:
-        """Get installation ID from installations endpoint."""
-        if not self._id_token:
-            return False
-
+    async def _resolve_installation_id(self) -> bool:
+        """Resolve the CIC installation id from the installations endpoint."""
         installations = await self.get_installations()
         if not installations:
             _LOGGER.error("No installations found")
             return False
 
-        # Get the first installation (or match by CIC if available)
         for installation in installations:
             external_id = installation.get("externalId")
             if external_id and external_id.startswith("INS-"):
@@ -467,123 +181,52 @@ class QuattRemoteApiClient(QuattApiClient):
         _LOGGER.error("No valid installation ID found")
         return False
 
-    async def refresh_token(self) -> bool:
-        """Refresh the authentication token."""
-        if not self._refresh_token:
-            return False
-
-        headers = self._get_headers()
-        payload = {
-            "grantType": "refresh_token",
-            "refreshToken": self._refresh_token,
-        }
-        url = f"{FIREBASE_TOKEN_URL}?key={GOOGLE_API_KEY}"
-
-        try:
-            async with self._session.post(
-                url,
-                json=payload,
-                headers=headers,
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    self._id_token = data.get("id_token")
-                    self._refresh_token = data.get("refresh_token")
-                    _LOGGER.debug("Token refresh successful")
-                    return True
-                _LOGGER.error("Token refresh failed: %s", await response.text())
-                return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Token refresh error - network error: %s", err)
-            return False
-        except TimeoutError as err:
-            _LOGGER.error("Token refresh error - timeout: %s", err)
-            return False
-        except json.JSONDecodeError as err:
-            _LOGGER.error("Token refresh error - invalid JSON response: %s", err)
-            return False
-
     async def get_installations(self) -> list[dict[str, Any]]:
-        """Get list of installations."""
-        if not self._id_token:
+        """Return the list of Quatt installations for this account."""
+        if not self._auth.is_authenticated:
             return []
+        status, data = await self._auth.request("GET", "/me/installations")
+        if status == 200 and isinstance(data, dict):
+            result = data.get("result")
+            if isinstance(result, list):
+                return result
+        return []
 
-        headers = {"Authorization": f"Bearer {self._id_token}"}
-        url = f"{QUATT_API_BASE_URL}/me/installations"
-
-        try:
-            async with self._session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get("result", [])
-                _LOGGER.error("Get installations failed: %s", await response.text())
-                return []
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Get installations error - network error: %s", err)
-            return []
-        except TimeoutError as err:
-            _LOGGER.error("Get installations error - timeout: %s", err)
-            return []
-        except json.JSONDecodeError as err:
-            _LOGGER.error("Get installations error - invalid JSON response: %s", err)
-            return []
+    async def refresh_token(self) -> bool:
+        """Proxy to the auth client's token refresh (kept for backwards compat)."""
+        refreshed = await self._auth.refresh_token()
+        if refreshed:
+            await self._save_state()
+        return refreshed
 
     async def get_cic_data(self, retry_on_403: bool = True) -> dict[str, Any] | None:
-        """Get CIC device data."""
-        if not self._id_token:
+        """Fetch the CIC device data."""
+        if not self._auth.is_authenticated:
             return None
-
-        headers = {"Authorization": f"Bearer {self._id_token}"}
-        url = f"{QUATT_API_BASE_URL}/me/cic/{self.cic}"
-
-        try:
-            async with self._session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    return await response.json()
-
-                # Handle 401 Unauthorized or 403 Forbidden - token might be expired
-                if response.status in (401, 403) and retry_on_403:
-                    _LOGGER.debug(
-                        "Got %s, attempting to refresh token", response.status
-                    )
-                    if await self.refresh_token():
-                        await self._save_tokens()
-                        # Retry once with new token (prevent infinite loop with retry_on_403=False)
-                        return await self.get_cic_data(retry_on_403=False)
-                    _LOGGER.error("Token refresh failed after %s", response.status)
-                    return None
-
-                _LOGGER.error(
-                    "Get CIC data failed with status %s: %s",
-                    response.status,
-                    await response.text(),
-                )
-                return None
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Get CIC data error - network error: %s", err)
-            return None
-        except TimeoutError as err:
-            _LOGGER.error("Get CIC data error - timeout: %s", err)
-            return None
-        except json.JSONDecodeError as err:
-            _LOGGER.error("Get CIC data error - invalid JSON response: %s", err)
-            return None
+        status, data = await self._auth.request(
+            "GET",
+            f"/me/cic/{self.cic}",
+            retry_on_auth_error=retry_on_403,
+        )
+        if status == 200 and isinstance(data, dict):
+            return data
+        if status in (401, 403):
+            # Auth client already tried to refresh; persist any refreshed tokens
+            await self._save_state()
+        return None
 
     async def async_get_data(self, retry_on_client_error: bool = False) -> Any:
-        """Get data from the remote API (compatible with local client interface)."""
-        # Get CIC data from remote API
+        """Get data for the coordinator (CIC feed + insights)."""
         cic_data = await self.get_cic_data()
         if not cic_data:
             return None
 
         result = cic_data.get("result", {})
 
-        # Fetch insights data and merge it into the result
         if not self._installation_id:
             _LOGGER.debug("No installation ID available, skipping insights fetch")
             return result
 
-        # Get the insights data (with caching)
         insights_data = await self.get_insights()
         if insights_data is not None:
             result["insights"] = insights_data
@@ -597,194 +240,69 @@ class QuattRemoteApiClient(QuattApiClient):
         advanced_insights: bool = False,
         retry_on_403: bool = True,
     ) -> dict[str, Any] | None:
-        """Get (cached) insights data from installation.
-
-        Args:
-            from_date: Start date in ISO format (e.g., "2020-01-01"). Defaults to "2020-01-01"
-            timeframe: Timeframe for insights ("all", "day", "week", "month", "year"). Defaults to "all".
-                      The API automatically calculates the end date based on from_date and timeframe.
-            advanced_insights: Whether to include advanced insights. Defaults to False
-            retry_on_403: Whether to retry on 403 errors. Defaults to True
-
-        Returns:
-            Dictionary with insights data or None if failed
-
-        """
-        if not self._id_token or not self._installation_id:
+        """Get (cached) insights data for the CIC installation."""
+        if not self._auth.is_authenticated or not self._installation_id:
             _LOGGER.error(
                 "Cannot get insights: not authenticated or no installation ID"
             )
             return None
 
-        # Build query parameters
         params = {
             "from": from_date,
             "timeframe": timeframe,
             "advancedInsights": str(advanced_insights).lower(),
         }
 
-        # Stable cache key for this specific parameter combination
         key = (from_date, timeframe, advanced_insights)
         cached = self._insights_cache.get(key)
-
-        # Fresh cache hit
         now = datetime.now(timezone.utc)  # noqa: UP017
         if cached and cached[0] > now:
             _LOGGER.debug("Using cached insights: %s", key)
             return cached[1]
 
-        url = f"{QUATT_API_BASE_URL}/me/installation/{self._installation_id}/insights"
-        headers = {"Authorization": f"Bearer {self._id_token}"}
+        status, data = await self._auth.request(
+            "GET",
+            f"/me/installation/{self._installation_id}/insights",
+            params=params,
+            retry_on_auth_error=retry_on_403,
+        )
 
-        try:
-            async with self._session.get(
-                url, headers=headers, params=params
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    result = data.get("result", {})
-                    fetched_at = datetime.now(timezone.utc)  # noqa: UP017
-                    expires_at = fetched_at + timedelta(
-                        minutes=INSIGHTS_REMOTE_SCAN_INTERVAL
-                    )
-                    _LOGGER.debug("Fetched and cached insights: %s", key)
-                    self._insights_cache[key] = (expires_at, result)
+        if status == 200 and isinstance(data, dict):
+            result = data.get("result", {})
+            fetched_at = datetime.now(timezone.utc)  # noqa: UP017
+            expires_at = fetched_at + timedelta(
+                minutes=INSIGHTS_REMOTE_SCAN_INTERVAL
+            )
+            self._insights_cache[key] = (expires_at, result)
 
-                    # Cleanup expired cache entries (keeps memory bounded over time)
-                    for cache_key, (expires_at, _cached_result) in list(
-                        self._insights_cache.items()
-                    ):
-                        if expires_at <= fetched_at:
-                            _LOGGER.debug("Removing cached insights: %s", cache_key)
-                            self._insights_cache.pop(cache_key, None)
+            # Cleanup expired cache entries (keeps memory bounded over time)
+            for cache_key, (cache_expires_at, _cached_result) in list(
+                self._insights_cache.items()
+            ):
+                if cache_expires_at <= fetched_at:
+                    self._insights_cache.pop(cache_key, None)
+            return result
 
-                    return result
-
-                # Handle 401 Unauthorized or 403 Forbidden - token might be expired
-                if response.status in (401, 403) and retry_on_403:
-                    _LOGGER.debug(
-                        "Got %s while getting insights, attempting to refresh token",
-                        response.status,
-                    )
-                    if await self.refresh_token():
-                        await self._save_tokens()
-                        # Retry once with new token (avoid infinite loop)
-                        retry = await self.get_insights(
-                            from_date=from_date,
-                            timeframe=timeframe,
-                            advanced_insights=advanced_insights,
-                            retry_on_403=False,
-                        )
-
-                        # If retry succeeded, return it
-                        if retry is not None:
-                            return retry
-
-                        # Retry failed: fall back to last cached value (even if expired), if available
-                        if cached is not None:
-                            _LOGGER.debug(
-                                "Insights retry failed, returning cached value (%s)",
-                                key,
-                            )
-                            return cached[1]
-                        return None
-
-                    _LOGGER.warning("Token refresh failed while getting insights")
-
-                _LOGGER.warning(
-                    "Get insights failed with status %s: %s",
-                    response.status,
-                    await response.text(),
-                )
-
-                # Backend failed: fall back to last cached value (even if expired), if available
-                if cached is not None:
-                    _LOGGER.debug(
-                        "Insights fetch failed, returning cached value (%s)", key
-                    )
-                    return cached[1]
-
-                return None
-        except (aiohttp.ClientError, TimeoutError, json.JSONDecodeError) as err:
-            _LOGGER.warning("Get insights error: %s", err)
-
-            # Transport/parse error: fall back to last cached value (even if expired), if available
-            if cached is not None:
-                _LOGGER.debug("Insights error, returning cached value (%s)", key)
-                return cached[1]
-
-            return None
+        # Transport/auth/backend failure: fall back to last cached value if any
+        if cached is not None:
+            _LOGGER.debug("Insights fetch failed, returning cached value (%s)", key)
+            return cached[1]
+        return None
 
     async def update_cic_settings(self, settings: dict[str, Any]) -> bool:
-        """Update CIC device settings.
-
-        Args:
-            settings: Dictionary of settings to update (e.g., {"dayMaxSoundLevel": "normal", "nightMaxSoundLevel": "library"})
-
-        Returns:
-            True if update was successful, False otherwise
-
-        """
-        if not self._id_token:
+        """Update CIC device settings."""
+        if not self._auth.is_authenticated:
             _LOGGER.error("Cannot update CIC settings: not authenticated")
             return False
 
-        headers = {"Authorization": f"Bearer {self._id_token}"}
-        url = f"{QUATT_API_BASE_URL}/me/cic/{self.cic}"
-
-        try:
-            async with self._session.put(
-                url,
-                json=settings,
-                headers=headers,
-            ) as response:
-                if response.status in (200, 201, 204):
-                    _LOGGER.debug("CIC settings updated successfully: %s", settings)
-                    return True
-
-                # Handle 401 Unauthorized or 403 Forbidden - token might be expired
-                if response.status in (401, 403):
-                    _LOGGER.debug(
-                        "Got %s while updating CIC settings, attempting to refresh token",
-                        response.status,
-                    )
-                    if await self.refresh_token():
-                        await self._save_tokens()
-                        # Retry once with new token
-                        headers = {"Authorization": f"Bearer {self._id_token}"}
-                        async with self._session.put(
-                            url,
-                            json=settings,
-                            headers=headers,
-                        ) as retry_response:
-                            if retry_response.status in (200, 201, 204):
-                                _LOGGER.debug(
-                                    "CIC settings updated successfully after token refresh: %s",
-                                    settings,
-                                )
-                                return True
-                            _LOGGER.error(
-                                "CIC settings update failed after token refresh: %s",
-                                await retry_response.text(),
-                            )
-                            return False
-                    _LOGGER.error("Token refresh failed while updating CIC settings")
-                    return False
-
-                _LOGGER.error(
-                    "CIC settings update failed with status %s: %s",
-                    response.status,
-                    await response.text(),
-                )
-                return False
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Error updating CIC settings - network error: %s", err)
-            return False
-        except TimeoutError as err:
-            _LOGGER.error("Error updating CIC settings - timeout: %s", err)
-            return False
-        except json.JSONDecodeError as err:
-            _LOGGER.error(
-                "Error updating CIC settings - invalid JSON response: %s", err
-            )
-            return False
+        status, _data = await self._auth.request(
+            "PUT",
+            f"/me/cic/{self.cic}",
+            json_body=settings,
+            expected_statuses=(200, 201, 204),
+        )
+        if status in (200, 201, 204):
+            _LOGGER.debug("CIC settings updated successfully: %s", settings)
+            return True
+        _LOGGER.error("CIC settings update failed with status %s", status)
+        return False
