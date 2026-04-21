@@ -125,6 +125,7 @@ This integration supports the **Quatt Home Battery** as a separate device that c
 ### Key Features
 
 - **Stand-alone device**: A home battery can be added without a CIC/heat pump — pick "Home battery" in the `+ Add integration` menu
+- **Shared Quatt mobile account**: First/last name is entered once and reused across every Quatt device you add (CIC and home battery), with a single shared sign-in stored locally in Home Assistant
 - **Live status**: State of charge, power, power flow direction, control action, control mode, capacity and inverter power
 - **Cumulative and yesterday savings**: Total, home battery, solar and imbalance savings in euros (incl. and excl. VAT)
 - **Today's insights**: Charged/discharged kWh, peak charge/discharge power, highest/lowest SoC (based on the 15-minute timeseries)
@@ -144,7 +145,7 @@ This integration supports the **Quatt Home Battery** as a separate device that c
 
 To pair your home battery you need three values which you can find on the home battery label or in the Quatt mobile app:
 
-- **Access key** (UUID)
+- **UUID** (access key)
 - **Serial number**
 - **Check code**
 
@@ -153,9 +154,10 @@ Steps:
 1. In Home Assistant, go to `Settings` → `Devices & services` → `Integrations`
 2. Click `+ Add integration` and search for **Quatt**
 3. In the "What kind of Quatt device do you want to add?" menu, select **Home battery**
-4. Enter the **Access key**, **Serial number** and **Check code**
-5. Click `Submit` — Home Assistant signs up (if needed) with Quatt's mobile API and pairs the home battery
-6. The new `Quatt Home Battery <serial>` device appears with its sub-devices for live status, savings, insights and energy flow
+4. **Sign in to the Quatt mobile API** — on the first Quatt device you add, enter your **first name** and **last name**. These are stored locally in Home Assistant and reused automatically for any other Quatt devices you add later, so this step is skipped on subsequent setups.
+5. Enter the **UUID**, **Serial number** and **Check code** from the battery label
+6. Click `Submit` — Home Assistant pairs the home battery via the Quatt mobile API
+7. A new **Home battery** hub device appears with its sub-devices **Savings**, **Insights** and **Energy flow** for cumulative savings, today's 15-minute insights and today's energy flow respectively
 
 ### Actions (Services)
 
