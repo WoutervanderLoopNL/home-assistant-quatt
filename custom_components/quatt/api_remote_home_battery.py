@@ -1,7 +1,7 @@
 """Remote Quatt Home Battery API client.
 
 Pair endpoint: POST /me/devices/homeBattery/pair
-Status endpoint: GET /me/installation/{installationUuid}/homeBattery/status
+Status endpoint: GET /me/installation/{installation_id}/homeBattery/status
 
 Authentication is delegated to :class:`QuattRemoteAuthClient`.
 """
@@ -31,13 +31,13 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         session: aiohttp.ClientSession,
         store=None,
         auth: QuattRemoteAuthClient | None = None,
-        installation_uuid: str | None = None,
+        installation_id: str | None = None,
     ) -> None:
         """Initialize the home battery client."""
         self._session = session
         self._store = store
-        self._auth = auth or QuattRemoteAuthClient(session, store=store)
-        self._installation_uuid: str | None = installation_uuid
+        self._auth = auth or QuattRemoteAuthClient(session)
+        self._installation_id: str | None = installation_id
         # Cache for today's insights: (expires_at, payload). Avoids hammering
         # the insights endpoint on every short status-poll tick.
         self._today_insights_cache: tuple[datetime, dict[str, Any]] | None = None
@@ -52,26 +52,22 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         return self._auth
 
     @property
-    def installation_uuid(self) -> str | None:
-        """Return the paired home battery installation UUID."""
-        return self._installation_uuid
+    def installation_id(self) -> str | None:
+        """Return the paired home battery installation id."""
+        return self._installation_id
 
-    def load_state(
-        self,
-        id_token: str | None,
-        refresh_token: str | None,
-        installation_uuid: str | None,
-    ) -> None:
-        """Load tokens and the paired installation UUID from storage."""
-        self._auth.load_tokens(id_token, refresh_token)
-        self._installation_uuid = installation_uuid
+    def load_installation_id(self, installation_id: str | None) -> None:
+        """Load the paired installation id from storage.
 
-    async def _save_state(self) -> None:
-        """Persist auth tokens and the paired installation UUID."""
-        await self._auth.save_tokens()
+        Auth tokens are loaded separately on the shared auth client.
+        """
+        self._installation_id = installation_id
+
+    async def _save_installation_id(self) -> None:
+        """Persist the paired installation id to this hub's store."""
         if self._store:
             existing = await self._store.async_load() or {}
-            existing["installation_uuid"] = self._installation_uuid
+            existing["installation_id"] = self._installation_id
             await self._store.async_save(existing)
 
     async def authenticate_and_pair(
@@ -79,8 +75,8 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         access_key_uuid: str,
         serial_number: str,
         check_code: str,
-        first_name: str = "HomeAssistant",
-        last_name: str = "User",
+        first_name: str | None = None,
+        last_name: str | None = None,
     ) -> bool:
         """Sign up (if needed) and pair a home battery."""
         try:
@@ -90,22 +86,22 @@ class QuattHomeBatteryApiClient(QuattApiClient):
                 ):
                     return False
 
-            installation_uuid = await self._pair_home_battery(
+            installation_id = await self._pair_home_battery(
                 access_key_uuid=access_key_uuid,
                 serial_number=serial_number,
                 check_code=check_code,
             )
-            if not installation_uuid:
+            if not installation_id:
                 return False
 
-            self._installation_uuid = installation_uuid
-            await self._save_state()
+            self._installation_id = installation_id
+            await self._save_installation_id()
         except (aiohttp.ClientError, TimeoutError) as err:
             _LOGGER.error("Home battery pairing failed: %s", err)
             return False
         else:
             _LOGGER.info(
-                "Home battery paired, installation UUID: %s", installation_uuid
+                "Home battery paired, installation id: %s", installation_id
             )
             return True
 
@@ -115,7 +111,7 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         serial_number: str,
         check_code: str,
     ) -> str | None:
-        """Call the pair endpoint and return the installation UUID."""
+        """Call the pair endpoint and return the installation id."""
         payload = {
             "accessKeyUuid": access_key_uuid,
             "serialNumber": serial_number,
@@ -134,33 +130,31 @@ class QuattHomeBatteryApiClient(QuattApiClient):
             return None
 
         result = data.get("result") or {}
-        installation_uuid = result.get("installationUuid")
-        if not installation_uuid:
+        installation_id = result.get("installationUuid")
+        if not installation_id:
             _LOGGER.error("Home battery pair returned no installationUuid: %s", data)
             return None
-        return installation_uuid
+        return installation_id
 
     async def get_installation(self) -> dict[str, Any] | None:
         """Fetch the full installation record (includes ``solarCapacitykWp``)."""
-        if not self._auth.is_authenticated or not self._installation_uuid:
+        if not self._auth.is_authenticated or not self._installation_id:
             return None
         status, data = await self._auth.request(
-            "GET", f"/me/installation/{self._installation_uuid}"
+            "GET", f"/me/installation/{self._installation_id}"
         )
         if status == 200 and isinstance(data, dict):
             return data
-        if status in (401, 403):
-            await self._save_state()
         return None
 
     async def update_solar_capacity(self, value: float) -> bool:
         """PATCH the installation's ``solarCapacitykWp`` field."""
-        if not self._auth.is_authenticated or not self._installation_uuid:
+        if not self._auth.is_authenticated or not self._installation_id:
             _LOGGER.error("Cannot update solar capacity: not authenticated")
             return False
         status, _data = await self._auth.request(
             "PATCH",
-            f"/me/installation/{self._installation_uuid}/solarCapacitykWp",
+            f"/me/installation/{self._installation_id}/solarCapacitykWp",
             json_body={"solarCapacitykWp": value},
             expected_statuses=(200, 201, 204),
         )
@@ -174,17 +168,14 @@ class QuattHomeBatteryApiClient(QuattApiClient):
 
     async def get_status(self) -> dict[str, Any] | None:
         """Fetch home battery status for the paired installation."""
-        if not self._auth.is_authenticated or not self._installation_uuid:
+        if not self._auth.is_authenticated or not self._installation_id:
             return None
         status, data = await self._auth.request(
             "GET",
-            f"/me/installation/{self._installation_uuid}/homeBattery/status",
+            f"/me/installation/{self._installation_id}/homeBattery/status",
         )
         if status == 200 and isinstance(data, dict):
             return data
-        if status in (401, 403):
-            # Auth client already tried to refresh; persist any refreshed tokens
-            await self._save_state()
         return None
 
     async def get_home_battery_insights(
@@ -199,11 +190,11 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         year/month/day are supplied the specific-date endpoint is used:
         ``/insights/homeBattery/{YYYY}/{MM}/{DD}``.
         """
-        if not self._auth.is_authenticated or not self._installation_uuid:
+        if not self._auth.is_authenticated or not self._installation_id:
             return None
 
         path = (
-            f"/me/installation/{self._installation_uuid}/insights/homeBattery"
+            f"/me/installation/{self._installation_id}/insights/homeBattery"
         )
         if year is not None and month is not None and day is not None:
             path = f"{path}/{year:04d}/{month:02d}/{day:02d}"
@@ -211,8 +202,6 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         status, data = await self._auth.request("GET", path)
         if status == 200 and isinstance(data, dict):
             return data
-        if status in (401, 403):
-            await self._save_state()
         return None
 
     async def _get_today_insights_cached(self) -> dict[str, Any] | None:
@@ -247,7 +236,7 @@ class QuattHomeBatteryApiClient(QuattApiClient):
 
         Without any date argument, today's day-level response is returned.
         """
-        if not self._auth.is_authenticated or not self._installation_uuid:
+        if not self._auth.is_authenticated or not self._installation_id:
             return None
 
         # Guard invalid combinations before hitting the API
@@ -266,7 +255,7 @@ class QuattHomeBatteryApiClient(QuattApiClient):
             year, month, day = today.year, today.month, today.day
 
         path = (
-            f"/me/installation/{self._installation_uuid}/insights/energyFlow"
+            f"/me/installation/{self._installation_id}/insights/energyFlow"
         )
         if year is not None:
             path += f"/{year:04d}"
@@ -278,8 +267,6 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         status, data = await self._auth.request("GET", path)
         if status == 200 and isinstance(data, dict):
             return data
-        if status in (401, 403):
-            await self._save_state()
         return None
 
     async def _get_today_energy_flow_cached(self) -> dict[str, Any] | None:
@@ -303,16 +290,14 @@ class QuattHomeBatteryApiClient(QuattApiClient):
 
     async def get_savings_overview(self) -> dict[str, Any] | None:
         """Fetch the savings overview for the paired installation."""
-        if not self._auth.is_authenticated or not self._installation_uuid:
+        if not self._auth.is_authenticated or not self._installation_id:
             return None
         status, data = await self._auth.request(
             "GET",
-            f"/me/installation/{self._installation_uuid}/insights/savings/overview",
+            f"/me/installation/{self._installation_id}/insights/savings/overview",
         )
         if status == 200 and isinstance(data, dict):
             return data
-        if status in (401, 403):
-            await self._save_state()
         return None
 
     async def async_get_data(self, retry_on_client_error: bool = False) -> Any:
@@ -331,7 +316,7 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         else:
             _LOGGER.warning(
                 "Home battery status endpoint returned no data for installation %s",
-                self._installation_uuid,
+                self._installation_id,
             )
 
         savings = await self.get_savings_overview()
@@ -344,7 +329,7 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         else:
             _LOGGER.warning(
                 "Home battery savings endpoint returned no data for installation %s",
-                self._installation_uuid,
+                self._installation_id,
             )
 
         insights = await self._get_today_insights_cached()

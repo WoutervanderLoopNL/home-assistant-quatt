@@ -30,13 +30,17 @@
                     "home_battery_check_code": "Check code"
                 }
             },
-            "pair": {
-                "title": "Pair with the Quatt device",
-                "description": "Set up remote connection to the Quatt heatpump via the mobile API.\nPlease enter your name and press the button on the CIC device.\n\n> **{cic}**\n\n![Pairing button location](/quatt_static/pair.png)\nComplete pairing within 60 seconds.\n\nPress 'Submit' to start the pairing process and wait for confirmation.",
+            "auth": {
+                "title": "Sign in to the Quatt mobile API",
+                "description": "Enter your name to create an anonymous account with the Quatt mobile API. These details are only stored locally in Home Assistant and reused for all Quatt devices you add.",
                 "data": {
                     "first_name": "First name",
                     "last_name": "Last name"
                 }
+            },
+            "pair": {
+                "title": "Pair with the Quatt device",
+                "description": "Press the button on your CIC device to complete pairing.\n\n> **{cic}**\n\n![Pairing button location](/quatt_static/pair.png)\nComplete pairing within 60 seconds.\n\nPress 'Submit' to start the pairing process and wait for confirmation."
             },
             "confirm": {
                 "description": "Press Submit to confirm setup."
@@ -78,13 +82,17 @@
                     "cic": "CIC ID"
                 }
             },
-            "pair": {
-                "title": "Pair with the Quatt device",
-                "description": "Set up remote connection to the Quatt heatpump via the mobile API.\nPlease enter your name and press the button on the CIC device.\n\n> **{cic}**\n\n![Pairing button location](/quatt_static/pair.png)\nComplete pairing within 60 seconds.\n\nPress 'Submit' to start the pairing process and wait for confirmation.",
+            "auth": {
+                "title": "Sign in to the Quatt mobile API",
+                "description": "Enter your name to create an anonymous account with the Quatt mobile API. These details are only stored locally in Home Assistant and reused for all Quatt devices you add.",
                 "data": {
                     "first_name": "First name",
                     "last_name": "Last name"
                 }
+            },
+            "pair": {
+                "title": "Pair with the Quatt device",
+                "description": "Press the button on your CIC device to complete pairing.\n\n> **{cic}**\n\n![Pairing button location](/quatt_static/pair.png)\nComplete pairing within 60 seconds.\n\nPress 'Submit' to start the pairing process and wait for confirmation."
             },
             "confirm": {
                 "description": "Press Submit to confirm setup."

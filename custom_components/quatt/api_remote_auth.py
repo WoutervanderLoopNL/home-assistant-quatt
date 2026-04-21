@@ -6,6 +6,7 @@ storage used by both the CIC (heatpump) and home battery APIs.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -44,8 +45,13 @@ class QuattRemoteAuthClient:
         self._store = store
         self._id_token: str | None = None
         self._refresh_token: str | None = None
+        self._first_name: str | None = None
+        self._last_name: str | None = None
         self._fid: str | None = None
         self._firebase_auth_token: str | None = None
+        # Serialize refresh_token() so concurrent 401/403 retries across
+        # multiple coordinators don't each consume the refresh token.
+        self._refresh_lock = asyncio.Lock()
 
     @property
     def id_token(self) -> str | None:
@@ -56,6 +62,16 @@ class QuattRemoteAuthClient:
     def is_authenticated(self) -> bool:
         """Return True when an id token has been obtained."""
         return self._id_token is not None
+
+    @property
+    def first_name(self) -> str | None:
+        """Return the stored user first name, if any."""
+        return self._first_name
+
+    @property
+    def last_name(self) -> str | None:
+        """Return the stored user last name, if any."""
+        return self._last_name
 
     @property
     def session(self) -> aiohttp.ClientSession:
@@ -73,6 +89,15 @@ class QuattRemoteAuthClient:
         if id_token:
             _LOGGER.debug("Auth tokens loaded from storage")
 
+    def load_profile(
+        self,
+        first_name: str | None,
+        last_name: str | None,
+    ) -> None:
+        """Load the stored user profile (first/last name) from storage."""
+        self._first_name = first_name
+        self._last_name = last_name
+
     async def save_tokens(self) -> None:
         """Persist the current auth tokens, preserving other store fields."""
         if not self._store:
@@ -83,17 +108,38 @@ class QuattRemoteAuthClient:
         await self._store.async_save(existing)
         _LOGGER.debug("Auth tokens saved to storage")
 
+    async def save_profile(self) -> None:
+        """Persist the current user profile (first/last name)."""
+        if not self._store:
+            return
+        existing = await self._store.async_load() or {}
+        existing["first_name"] = self._first_name
+        existing["last_name"] = self._last_name
+        await self._store.async_save(existing)
+        _LOGGER.debug("Auth profile saved to storage")
+
     async def ensure_authenticated(
         self,
-        first_name: str = "HomeAssistant",
-        last_name: str = "User",
+        first_name: str | None = None,
+        last_name: str | None = None,
     ) -> bool:
         """Ensure we have a valid id token, signing up a new user if needed.
 
         Returns True when tokens are available (already-loaded, refreshed, or
         freshly signed up). Pairing with a specific device is NOT performed
         here - callers do that per API.
+
+        If ``first_name``/``last_name`` are provided they override any stored
+        profile and are persisted after a successful signup.
         """
+        if first_name is not None:
+            self._first_name = first_name
+        if last_name is not None:
+            self._last_name = last_name
+
+        effective_first = self._first_name or "HomeAssistant"
+        effective_last = self._last_name or "User"
+
         # Existing tokens: try refreshing to make sure they are valid
         if self._id_token and self._refresh_token:
             if await self.refresh_token():
@@ -111,39 +157,59 @@ class QuattRemoteAuthClient:
         if not await self._get_account_info():
             return False
         if not await self._update_user_profile(
-            first_name=first_name, last_name=last_name
+            first_name=effective_first, last_name=effective_last
         ):
             return False
+        self._first_name = effective_first
+        self._last_name = effective_last
         await self.save_tokens()
+        await self.save_profile()
         return True
 
     async def refresh_token(self) -> bool:
-        """Refresh the Firebase id token using the stored refresh token."""
-        if not self._refresh_token:
-            return False
+        """Refresh the Firebase id token using the stored refresh token.
 
-        headers = self._firebase_headers()
-        payload = {
-            "grantType": "refresh_token",
-            "refreshToken": self._refresh_token,
-        }
-        url = f"{FIREBASE_TOKEN_URL}?key={GOOGLE_API_KEY}"
-
-        try:
-            async with self._session.post(
-                url, json=payload, headers=headers
-            ) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    self._id_token = data.get("id_token")
-                    self._refresh_token = data.get("refresh_token")
-                    _LOGGER.debug("Token refresh successful")
-                    return True
-                _LOGGER.warning("Token refresh failed: %s", await response.text())
+        Serialized under ``_refresh_lock`` so two concurrent 401/403 retries
+        can't both try to spend the same refresh token. The second caller
+        waits, then re-checks whether the first already rotated the token.
+        """
+        async with self._refresh_lock:
+            if not self._refresh_token:
                 return False
-        except (aiohttp.ClientError, TimeoutError, json.JSONDecodeError) as err:
-            _LOGGER.warning("Token refresh error: %s", err)
-            return False
+
+            refresh_token_in_flight = self._refresh_token
+
+            headers = self._firebase_headers()
+            payload = {
+                "grantType": "refresh_token",
+                "refreshToken": refresh_token_in_flight,
+            }
+            url = f"{FIREBASE_TOKEN_URL}?key={GOOGLE_API_KEY}"
+
+            try:
+                async with self._session.post(
+                    url, json=payload, headers=headers
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        self._id_token = data.get("id_token")
+                        self._refresh_token = data.get("refresh_token")
+                        _LOGGER.debug("Token refresh successful")
+                        return True
+                    # Another caller may have already rotated the token while
+                    # we were waiting - succeed silently in that case.
+                    if refresh_token_in_flight != self._refresh_token:
+                        _LOGGER.debug(
+                            "Refresh token rotated by concurrent caller"
+                        )
+                        return True
+                    _LOGGER.warning(
+                        "Token refresh failed: %s", await response.text()
+                    )
+                    return False
+            except (aiohttp.ClientError, TimeoutError, json.JSONDecodeError) as err:
+                _LOGGER.warning("Token refresh error: %s", err)
+                return False
 
     async def request(
         self,

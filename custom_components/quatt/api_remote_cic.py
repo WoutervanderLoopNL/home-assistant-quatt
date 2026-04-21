@@ -38,7 +38,7 @@ class QuattCicRemoteApiClient(QuattApiClient):
         self.cic = cic
         self._session = session
         self._store = store
-        self._auth = auth or QuattRemoteAuthClient(session, store=store)
+        self._auth = auth or QuattRemoteAuthClient(session)
         self._installation_id: str | None = None
         self._pairing_completed: bool = False
         # Insights cache keyed by request parameters: key -> (expires_at, result_dict)
@@ -51,26 +51,24 @@ class QuattCicRemoteApiClient(QuattApiClient):
         """Return the shared auth client."""
         return self._auth
 
-    def load_tokens(
-        self,
-        id_token: str | None,
-        refresh_token: str | None,
-        installation_id: str | None,
-    ) -> None:
-        """Load tokens and CIC installation id from storage."""
-        self._auth.load_tokens(id_token, refresh_token)
+    def load_installation_id(self, installation_id: str | None) -> None:
+        """Load the CIC installation id from storage.
+
+        Auth tokens are loaded separately on the shared auth client.
+        """
         self._installation_id = installation_id
 
-    async def _save_state(self) -> None:
-        """Persist auth tokens and CIC installation id."""
-        await self._auth.save_tokens()
+    async def _save_installation_id(self) -> None:
+        """Persist the CIC installation id to this hub's store."""
         if self._store:
             existing = await self._store.async_load() or {}
             existing["installation_id"] = self._installation_id
             await self._store.async_save(existing)
 
     async def authenticate(
-        self, first_name: str = "HomeAssistant", last_name: str = "User"
+        self,
+        first_name: str | None = None,
+        last_name: str | None = None,
     ) -> bool:
         """Authenticate and pair with the CIC device.
 
@@ -88,7 +86,7 @@ class QuattCicRemoteApiClient(QuattApiClient):
 
                 # An explicit refresh + retry as a last effort before full re-signup
                 if await self._auth.refresh_token():
-                    await self._save_state()
+                    await self._auth.save_tokens()
                     cic_data = await self.get_cic_data()
                     if cic_data:
                         _LOGGER.info(
@@ -119,7 +117,7 @@ class QuattCicRemoteApiClient(QuattApiClient):
             if not await self._resolve_installation_id():
                 return False
 
-            await self._save_state()
+            await self._save_installation_id()
         except (aiohttp.ClientError, TimeoutError) as err:
             _LOGGER.error("Authentication failed: %s", err)
             return False
@@ -196,7 +194,7 @@ class QuattCicRemoteApiClient(QuattApiClient):
         """Proxy to the auth client's token refresh (kept for backwards compat)."""
         refreshed = await self._auth.refresh_token()
         if refreshed:
-            await self._save_state()
+            await self._auth.save_tokens()
         return refreshed
 
     async def get_cic_data(self, retry_on_403: bool = True) -> dict[str, Any] | None:
@@ -210,9 +208,6 @@ class QuattCicRemoteApiClient(QuattApiClient):
         )
         if status == 200 and isinstance(data, dict):
             return data
-        if status in (401, 403):
-            # Auth client already tried to refresh; persist any refreshed tokens
-            await self._save_state()
         return None
 
     async def async_get_data(self, retry_on_client_error: bool = False) -> Any:

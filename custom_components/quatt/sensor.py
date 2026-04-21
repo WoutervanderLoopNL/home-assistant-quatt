@@ -1496,7 +1496,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_devices):
         for desc in HOME_BATTERY_SAVINGS_SENSORS:
             sensors.append(
                 QuattSensor(
-                    device_name="Home battery savings",
+                    device_name="Savings",
                     device_id=DEVICE_HOME_BATTERY_SAVINGS_ID,
                     sensor_key=desc.key,
                     coordinator=home_battery_coordinator,
@@ -1507,7 +1507,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_devices):
         for desc in HOME_BATTERY_INSIGHTS_SENSORS:
             sensors.append(
                 QuattSensor(
-                    device_name="Home battery insights",
+                    device_name="Insights",
                     device_id=DEVICE_HOME_BATTERY_INSIGHTS_ID,
                     sensor_key=desc.key,
                     coordinator=home_battery_coordinator,
@@ -1518,7 +1518,7 @@ async def async_setup_entry(hass: HomeAssistant, entry, async_add_devices):
         for desc in HOME_BATTERY_ENERGY_FLOW_SENSORS:
             sensors.append(
                 QuattSensor(
-                    device_name="Home battery energy flow",
+                    device_name="Energy flow",
                     device_id=DEVICE_HOME_BATTERY_ENERGY_FLOW_ID,
                     sensor_key=desc.key,
                     coordinator=home_battery_coordinator,

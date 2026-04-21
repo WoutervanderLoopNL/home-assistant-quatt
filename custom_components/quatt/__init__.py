@@ -33,6 +33,7 @@ from .api import (
     QuattApiClientError,
 )
 from .api_local_cic import QuattCicLocalApiClient
+from .api_remote_auth import QuattRemoteAuthClient
 from .api_remote_cic import QuattCicRemoteApiClient
 from .api_remote_home_battery import QuattHomeBatteryApiClient
 from .const import (
@@ -46,10 +47,11 @@ from .const import (
     DEFAULT_REMOTE_SCAN_INTERVAL,
     DEVICE_CIC_ID,
     DOMAIN,
-    CIC_STORAGE_KEY,
     HOME_BATTERY_STORAGE_KEY,
     LOGGER,
+    REMOTE_AUTH_STORAGE_KEY,
     REMOTE_CONF_SCAN_INTERVAL,
+    REMOTE_STORAGE_KEY_PREFIX,
     STORAGE_VERSION,
 )
 from .coordinator_home_battery import QuattHomeBatteryDataUpdateCoordinator
@@ -63,6 +65,40 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.SWITCH,
 ]
+
+# Per-hub stores are always keyed as ``quatt_remote_storage_{unique_id}``.
+# CIC unique_ids carry a ``CIC-`` prefix (hostname); battery unique_ids carry
+# a ``BAT-`` prefix (access-key UUID). Auth tokens live under the ``AUTH``
+# suffix in the same namespace.
+_AUTH_CLIENT_DATA_KEY = "_remote_auth_client"
+
+
+async def _get_or_create_auth_client(
+    hass: HomeAssistant,
+) -> QuattRemoteAuthClient:
+    """Return the singleton remote-auth client, creating it on first use.
+
+    A single in-memory client guarantees that refresh-token rotations are
+    serialized across every CIC and battery coordinator.
+    """
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    existing = domain_data.get(_AUTH_CLIENT_DATA_KEY)
+    if isinstance(existing, QuattRemoteAuthClient):
+        return existing
+
+    auth_store = Store(hass, STORAGE_VERSION, REMOTE_AUTH_STORAGE_KEY)
+    stored = await auth_store.async_load() or {}
+    auth_client = QuattRemoteAuthClient(
+        async_get_clientsession(hass), store=auth_store
+    )
+    auth_client.load_tokens(
+        stored.get("id_token"), stored.get("refresh_token")
+    )
+    auth_client.load_profile(
+        stored.get("first_name"), stored.get("last_name")
+    )
+    domain_data[_AUTH_CLIENT_DATA_KEY] = auth_client
+    return auth_client
 
 
 async def async_setup(hass: HomeAssistant, _config):
@@ -118,19 +154,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ] = {"cic_local": None, "cic_remote": None, "home_battery": None}
 
     if is_home_battery_hub:
-        # Home battery only hub - no local CIC, only the remote home battery API
+        # Home battery only hub - no local CIC, only the remote home battery API.
+        # Battery unique_id is the access-key UUID (already prefixed BAT-).
         store = Store(
             hass,
             STORAGE_VERSION,
-            f"{HOME_BATTERY_STORAGE_KEY}_{entry.unique_id}",
+            f"{REMOTE_STORAGE_KEY_PREFIX}_{entry.unique_id}",
         )
         stored_data = await store.async_load() or {}
         session = async_get_clientsession(hass)
-        home_battery_client = QuattHomeBatteryApiClient(session, store=store)
-        home_battery_client.load_state(
-            id_token=stored_data.get("id_token"),
-            refresh_token=stored_data.get("refresh_token"),
-            installation_uuid=stored_data.get("installation_uuid"),
+        auth_client = await _get_or_create_auth_client(hass)
+        home_battery_client = QuattHomeBatteryApiClient(
+            session, store=store, auth=auth_client
+        )
+        home_battery_client.load_installation_id(
+            stored_data.get("installation_id")
         )
 
         home_battery_coordinator = QuattHomeBatteryDataUpdateCoordinator(
@@ -167,24 +205,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if has_remote:
             cic = entry.data[CONF_REMOTE_CIC]
 
-            # Create storage for tokens
-            store = Store(hass, STORAGE_VERSION, f"{CIC_STORAGE_KEY}_{entry.unique_id}")
+            # Per-CIC store now only holds installation_id - auth tokens live
+            # in the shared REMOTE_AUTH_STORAGE_KEY store.
+            store = Store(
+                hass,
+                STORAGE_VERSION,
+                f"{REMOTE_STORAGE_KEY_PREFIX}_{entry.unique_id}",
+            )
+            stored_data = await store.async_load() or {}
 
-            # Load stored tokens
-            stored_data = await store.async_load()
-
-            # Create remote API client
             session = async_get_clientsession(hass)
-            remote_client = QuattCicRemoteApiClient(cic, session, store)
-
-            # Load tokens if they exist
-            if stored_data:
-                remote_client.load_tokens(
-                    stored_data.get("id_token"),
-                    stored_data.get("refresh_token"),
-                    stored_data.get("installation_id"),
-                )
-                LOGGER.debug("Loaded stored tokens for CIC %s", cic)
+            auth_client = await _get_or_create_auth_client(hass)
+            remote_client = QuattCicRemoteApiClient(
+                cic, session, store=store, auth=auth_client
+            )
+            remote_client.load_installation_id(stored_data.get("installation_id"))
+            if stored_data.get("installation_id"):
+                LOGGER.debug("Loaded stored installation id for CIC %s", cic)
 
             # Authenticate (will use existing tokens if available, or do full auth)
             if await remote_client.authenticate():
@@ -555,10 +592,10 @@ async def _migrate_v5_to_v6(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     # Always bump the entry version, even if no remote is configured
     if CONF_REMOTE_CIC in config_entry.data:
         old_store = Store(
-            hass, STORAGE_VERSION, f"{CIC_STORAGE_KEY}_{config_entry.entry_id}"
+            hass, STORAGE_VERSION, f"{REMOTE_STORAGE_KEY_PREFIX}_{config_entry.entry_id}"
         )
         new_store = Store(
-            hass, STORAGE_VERSION, f"{CIC_STORAGE_KEY}_{config_entry.unique_id}"
+            hass, STORAGE_VERSION, f"{REMOTE_STORAGE_KEY_PREFIX}_{config_entry.unique_id}"
         )
 
         new_data = await new_store.async_load()
@@ -577,6 +614,86 @@ async def _migrate_v5_to_v6(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         version=6,
     )
 
+    return True
+
+
+async def _migrate_v6_to_v7(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Migrate v6 entry to v7 entry.
+
+    Split the per-hub token+id stores into:
+      - one shared auth store (REMOTE_AUTH_STORAGE_KEY) with id_token/refresh_token
+      - per-hub stores holding only installation_id
+
+    Home battery hubs additionally rename ``installation_uuid`` to
+    ``installation_id`` and move from the legacy
+    ``quatt_home_battery_storage_{unique_id}`` key to the uniform
+    ``quatt_remote_storage_{unique_id}`` layout.
+    """
+    LOGGER.debug("Migrating config entry from version '%s'", config_entry.version)
+
+    if not config_entry.unique_id:
+        LOGGER.error("Cannot migrate v6->v7: config entry unique_id is missing")
+        return False
+
+    auth_store = Store(hass, STORAGE_VERSION, REMOTE_AUTH_STORAGE_KEY)
+
+    async def _promote_auth_tokens(source: dict) -> None:
+        """Copy tokens into the shared auth store if it's still empty."""
+        id_token = source.get("id_token")
+        refresh_token = source.get("refresh_token")
+        if not id_token or not refresh_token:
+            return
+        existing = await auth_store.async_load() or {}
+        if existing.get("id_token") and existing.get("refresh_token"):
+            return
+        await auth_store.async_save(
+            {"id_token": id_token, "refresh_token": refresh_token}
+        )
+
+    is_home_battery = (
+        CONF_HOME_BATTERY_SERIAL in config_entry.data
+        and CONF_LOCAL_CIC not in config_entry.data
+    )
+
+    if is_home_battery:
+        legacy_store = Store(
+            hass,
+            STORAGE_VERSION,
+            f"{HOME_BATTERY_STORAGE_KEY}_{config_entry.unique_id}",
+        )
+        new_store = Store(
+            hass,
+            STORAGE_VERSION,
+            f"{REMOTE_STORAGE_KEY_PREFIX}_{config_entry.unique_id}",
+        )
+        legacy_data = await legacy_store.async_load() or {}
+        await _promote_auth_tokens(legacy_data)
+        installation_id = (
+            legacy_data.get("installation_id")
+            or legacy_data.get("installation_uuid")
+        )
+        new_payload: dict = {}
+        if installation_id:
+            new_payload["installation_id"] = installation_id
+        await new_store.async_save(new_payload)
+        # Drop the legacy store so the old tokens don't linger on disk.
+        await legacy_store.async_remove()
+    elif CONF_REMOTE_CIC in config_entry.data:
+        # CIC store already uses the REMOTE_STORAGE_KEY_PREFIX + unique_id
+        # layout; we only need to strip tokens out of it.
+        store = Store(
+            hass,
+            STORAGE_VERSION,
+            f"{REMOTE_STORAGE_KEY_PREFIX}_{config_entry.unique_id}",
+        )
+        data = await store.async_load() or {}
+        await _promote_auth_tokens(data)
+        new_payload = {}
+        if data.get("installation_id"):
+            new_payload["installation_id"] = data["installation_id"]
+        await store.async_save(new_payload)
+
+    hass.config_entries.async_update_entry(config_entry, version=7)
     return True
 
 
@@ -601,6 +718,10 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
 
     if config_entry.version == 5:
         if not await _migrate_v5_to_v6(hass, config_entry):
+            return False
+
+    if config_entry.version == 6:
+        if not await _migrate_v6_to_v7(hass, config_entry):
             return False
 
     return True

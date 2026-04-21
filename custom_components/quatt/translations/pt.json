@@ -36,13 +36,17 @@
                     "add_remote": "Ativar configuração de ligação remota"
                 }
             },
-            "pair": {
-                "title": "Emparelhar com o dispositivo Quatt",
-                "description": "Configurar ligação remota à bomba de calor Quatt através da API móvel.\nIntroduza o seu nome e pressione o botão do seu dispositivo CIC.\n\n> **{cic}**\n\n![Localização do botão de emparelhamento](/quatt_static/pair.png)\nConcluir o emparelhamento em 60 segundos.\n\nPremir 'Enviar' para iniciar o processo de emparelhamento e aguardar confirmação.",
+            "auth": {
+                "title": "Iniciar sessão na API móvel Quatt",
+                "description": "Introduza o seu nome para criar uma conta anónima na API móvel Quatt. Estes dados apenas são guardados localmente no Home Assistant e reutilizados para todos os dispositivos Quatt que adicionar.",
                 "data": {
                     "first_name": "Primeiro nome",
                     "last_name": "Apelido"
                 }
+            },
+            "pair": {
+                "title": "Emparelhar com o dispositivo Quatt",
+                "description": "Pressione o botão do seu dispositivo CIC para concluir o emparelhamento.\n\n> **{cic}**\n\n![Localização do botão de emparelhamento](/quatt_static/pair.png)\nConcluir o emparelhamento em 60 segundos.\n\nPremir 'Enviar' para iniciar o processo de emparelhamento e aguardar confirmação."
             },
             "confirm": {
                 "description": "Deseja iniciar a configuração?"
@@ -78,13 +82,17 @@
                     "add_remote": "Adicionar conectividade remota através da API móvel da Quatt para obter dados adicionais da bomba de calor."
                 }
             },
-            "pair": {
-                "title": "Emparelhar com o dispositivo Quatt",
-                "description": "Configurar ligação remota à bomba de calor Quatt através da API móvel.\nIntroduza o seu nome e pressione o botão do seu dispositivo CIC.\n\n> **{cic}**\n\n![Localização do botão de emparelhamento](/quatt_static/pair.png)\nConcluir o emparelhamento em 60 segundos.\n\nPremir 'Enviar' para iniciar o processo de emparelhamento e aguardar confirmação.",
+            "auth": {
+                "title": "Iniciar sessão na API móvel Quatt",
+                "description": "Introduza o seu nome para criar uma conta anónima na API móvel Quatt. Estes dados apenas são guardados localmente no Home Assistant e reutilizados para todos os dispositivos Quatt que adicionar.",
                 "data": {
                     "first_name": "Primeiro nome",
                     "last_name": "Apelido"
                 }
+            },
+            "pair": {
+                "title": "Emparelhar com o dispositivo Quatt",
+                "description": "Pressione o botão do seu dispositivo CIC para concluir o emparelhamento.\n\n> **{cic}**\n\n![Localização do botão de emparelhamento](/quatt_static/pair.png)\nConcluir o emparelhamento em 60 segundos.\n\nPremir 'Enviar' para iniciar o processo de emparelhamento e aguardar confirmação."
             },
             "confirm": {
                 "description": "Deseja iniciar a configuração?"

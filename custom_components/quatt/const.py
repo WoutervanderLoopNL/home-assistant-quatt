@@ -45,13 +45,23 @@ GOOGLE_FIREBASE_CLIENT = (
     "H4sIAAAAAAAAAKtWykhNLCpJSk0sKVayio7VUSpLLSrOzM9TslIyUqoFAFyivEQfAAAA"
 )
 
-# Storage key for the CIC remote (mobile API) connection.
-# The *symbol* is CIC_-prefixed for clarity; the stored *value*
-# is kept as-is to avoid a user-visible migration.
-CIC_STORAGE_KEY = "quatt_remote_storage"
+# Remote API storage keys.
+#
+# All remote (mobile API) state is persisted under a single prefix so CIC and
+# battery hubs share the same namespace:
+#   quatt_remote_storage_AUTH       -> shared {id_token, refresh_token}
+#   quatt_remote_storage_CIC-xxx    -> per-CIC   {installation_id}
+#   quatt_remote_storage_BAT-xxx    -> per-battery {installation_id}
+#
+# The suffix is always the entry's unique_id; CIC unique_ids are CIC-xxx
+# hostnames and battery unique_ids are the BAT-xxx access-key UUIDs.
+# Auth tokens live in ONE shared store so concurrent refreshes from different
+# coordinators can't race and invalidate each other's refresh token.
 STORAGE_VERSION = 1
+REMOTE_STORAGE_KEY_PREFIX = "quatt_remote_storage"
+REMOTE_AUTH_STORAGE_KEY = f"{REMOTE_STORAGE_KEY_PREFIX}_AUTH"
 
-# Storage key prefix for home battery hubs
+# Legacy storage key, kept only for the v6 -> v7 migration.
 HOME_BATTERY_STORAGE_KEY = "quatt_home_battery_storage"
 
 # System types
@@ -103,17 +113,17 @@ DEVICE_LIST = [
     {"name": "Insights", "id": DEVICE_CIC_INSIGHTS_ID, "kind": QuattDeviceKind.SERVICE},
     {"name": "Home battery", "id": DEVICE_HOME_BATTERY_ID, "kind": QuattDeviceKind.HUB},
     {
-        "name": "Home battery savings",
+        "name": "Savings",
         "id": DEVICE_HOME_BATTERY_SAVINGS_ID,
         "kind": QuattDeviceKind.SERVICE,
     },
     {
-        "name": "Home battery insights",
+        "name": "Insights",
         "id": DEVICE_HOME_BATTERY_INSIGHTS_ID,
         "kind": QuattDeviceKind.SERVICE,
     },
     {
-        "name": "Home battery energy flow",
+        "name": "Energy flow",
         "id": DEVICE_HOME_BATTERY_ENERGY_FLOW_ID,
         "kind": QuattDeviceKind.SERVICE,
     },

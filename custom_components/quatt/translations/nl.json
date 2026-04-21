@@ -30,13 +30,17 @@
                     "home_battery_check_code": "Controlecode"
                 }
             },
-            "pair": {
-                "title": "Koppel met het Quatt apparaat",
-                "description": "Stel externe verbinding in met de Quatt warmtepomp via de mobiele API.\nVoer je naam in en druk op de knop van je CIC apparaat.\n\n> **{cic}**\n\n![Locatie koppelknop](/quatt_static/pair.png)\nVoltooi het koppelproces binnen 60 seconden.\n\nDruk op 'Verzenden' om het koppelproces te starten en wacht op bevestiging.",
+            "auth": {
+                "title": "Aanmelden bij de Quatt mobiele API",
+                "description": "Voer je naam in om een anoniem account aan te maken bij de Quatt mobiele API. Deze gegevens worden alleen lokaal in Home Assistant opgeslagen en hergebruikt voor alle Quatt apparaten die je toevoegt.",
                 "data": {
                     "first_name": "Voornaam",
                     "last_name": "Achternaam"
                 }
+            },
+            "pair": {
+                "title": "Koppel met het Quatt apparaat",
+                "description": "Druk op de knop van je CIC apparaat om het koppelen te voltooien.\n\n> **{cic}**\n\n![Locatie koppelknop](/quatt_static/pair.png)\nVoltooi het koppelproces binnen 60 seconden.\n\nDruk op 'Verzenden' om het koppelproces te starten en wacht op bevestiging."
             },
             "confirm": {
                 "description": "Configuratie starten?"
@@ -72,13 +76,17 @@
                     "add_remote": "Voeg externe connectiviteit toe via de Quatt mobiele API om extra gegevens van de warmtepomp op te halen."
                 }
             },
-            "pair": {
-                "title": "Koppel met het Quatt apparaat",
-                "description": "Stel externe verbinding in met de Quatt warmtepomp via de mobiele API.\nVoer je naam in en druk op de knop van je CIC apparaat.\n\n> **{cic}**\n\n![Locatie koppelknop](/quatt_static/pair.png)\nVoltooi het koppelproces binnen 60 seconden.\n\nDruk op 'Verzenden' om het koppelproces te starten en wacht op bevestiging.",
+            "auth": {
+                "title": "Aanmelden bij de Quatt mobiele API",
+                "description": "Voer je naam in om een anoniem account aan te maken bij de Quatt mobiele API. Deze gegevens worden alleen lokaal in Home Assistant opgeslagen en hergebruikt voor alle Quatt apparaten die je toevoegt.",
                 "data": {
                     "first_name": "Voornaam",
                     "last_name": "Achternaam"
                 }
+            },
+            "pair": {
+                "title": "Koppel met het Quatt apparaat",
+                "description": "Druk op de knop van je CIC apparaat om het koppelen te voltooien.\n\n> **{cic}**\n\n![Locatie koppelknop](/quatt_static/pair.png)\nVoltooi het koppelproces binnen 60 seconden.\n\nDruk op 'Verzenden' om het koppelproces te starten en wacht op bevestiging."
             },
             "confirm": {
                 "description": "Configuratie starten?"
