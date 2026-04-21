@@ -116,6 +116,60 @@ To enable the remote API for your existing Quatt CIC:
 
 Once enabled, additional sensors and the sound level controls will appear in your Home Assistant installation.
 
+## Quatt Home Battery (Optional - Beta)
+
+This integration supports the **Quatt Home Battery** as a separate device that can be added alongside (or independently of) a Quatt heat pump. The home battery is paired via the Quatt mobile API and exposes live status, savings, insights, and full energy-flow data (battery, solar, house, grid) in Home Assistant.
+
+**Special thanks to [@WoutervanderLoopNL](https://github.com/WoutervanderLoopNL) for reverse engineering the official Quatt mobile app, which made this home battery support possible!**
+
+### Key Features
+
+- **Stand-alone device**: A home battery can be added without a CIC/heat pump — pick "Home battery" in the `+ Add integration` menu
+- **Live status**: State of charge, power, power flow direction, control action, control mode, capacity and inverter power
+- **Cumulative and yesterday savings**: Total, home battery, solar and imbalance savings in euros (incl. and excl. VAT)
+- **Today's insights**: Charged/discharged kWh, peak charge/discharge power, highest/lowest SoC (based on the 15-minute timeseries)
+- **Today's energy flow**: Battery charged/discharged, solar production, house consumption, grid import/export in kWh
+- **Solar capacity control**: A `Solar capacity` number entity that PATCHes `solarCapacitykWp` on the installation (used by Quatt for energy-flow calculations)
+- **On-demand history**: Two actions (`quatt.get_home_battery_insights` and `quatt.get_energy_flow`) to fetch specific days, months or years — useful for ApexCharts-style graphs (see the [Usage Graph](#quatt-usage-graph-with-apexcharts-optional---beta) section for the same pattern applied to heat pump insights)
+
+### Important Considerations
+
+- **Beta status**: This feature is currently in **beta** with no backwards compatibility guarantees between versions
+- **Reverse engineered API**: The home battery API was obtained through reverse engineering of the official Quatt mobile app. As such, the long-term stability cannot be guaranteed
+- **Dependent on Quatt**: This feature depends on Quatt's remote API infrastructure. Changes to Quatt's authentication system or API may cause the home battery integration to stop working
+- **No official support**: Since this is based on reverse engineering, there is no official support from Quatt for this functionality
+- **Cached insights**: Today's insights and energy-flow data are cached client-side to match the Quatt server-side refresh rate (roughly once per `remote_scan_interval` minutes). Calling the services more frequently does not return fresher data
+
+### Pairing a Home Battery
+
+To pair your home battery you need three values which you can find on the home battery label or in the Quatt mobile app:
+
+- **Access key** (UUID)
+- **Serial number**
+- **Check code**
+
+Steps:
+
+1. In Home Assistant, go to `Settings` → `Devices & services` → `Integrations`
+2. Click `+ Add integration` and search for **Quatt**
+3. In the "What kind of Quatt device do you want to add?" menu, select **Home battery**
+4. Enter the **Access key**, **Serial number** and **Check code**
+5. Click `Submit` — Home Assistant signs up (if needed) with Quatt's mobile API and pairs the home battery
+6. The new `Quatt Home Battery <serial>` device appears with its sub-devices for live status, savings, insights and energy flow
+
+### Actions (Services)
+
+Two actions are registered when a home battery is paired:
+
+- **`quatt.get_home_battery_insights`** — Returns the raw 15-minute timeseries (power, charge state, control action/mode). Call without arguments for today, or provide `year` + `month` + `day` for a specific date.
+- **`quatt.get_energy_flow`** — Returns the energy-flow timeseries and aggregated totals (battery charge/discharge, solar, house, grid import/export). The scope is chosen by which fields you provide:
+  - no fields → today
+  - `year` + `month` + `day` → one day
+  - `year` + `month` → one month
+  - `year` → one year
+
+Both actions mirror the `quatt.get_insights` action used for heat pump insights, so the same [Usage Graph](#quatt-usage-graph-with-apexcharts-optional---beta) pattern (automation + `python_script` + ApexCharts card) can be reused to build home-battery or energy-flow graphs.
+
 ## Quatt Dashboard Card (Optional - Beta)
 
 This integration includes a fully-featured **Quatt Dashboard Card** that replicates and enhances the dashboard from the official Quatt mobile app directly in your Home Assistant interface. This provides a comprehensive, at-a-glance view of your Quatt heat pump system status and performance.
