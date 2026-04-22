@@ -131,7 +131,7 @@ This integration supports the **Quatt Home Battery** as a separate device that c
 - **Today's insights**: Charged/discharged kWh, peak charge/discharge power, highest/lowest SoC (based on the 15-minute timeseries)
 - **Today's energy flow**: Battery charged/discharged, solar production, house consumption, grid import/export in kWh
 - **Solar capacity control**: A `Solar capacity` number entity that PATCHes `solarCapacitykWp` on the installation (used by Quatt for energy-flow calculations)
-- **On-demand history**: Two actions (`quatt.get_home_battery_insights` and `quatt.get_energy_flow`) to fetch specific days, months or years — useful for ApexCharts-style graphs (see the [Usage Graph](#quatt-usage-graph-with-apexcharts-optional---beta) section for the same pattern applied to heat pump insights)
+- **On-demand history**: Two actions (`quatt.get_home_battery_insights` and `quatt.get_home_battery_energy_flow`) to fetch specific days, months or years — useful for ApexCharts-style graphs (see the [Usage Graph](#quatt-usage-graph-with-apexcharts-optional---beta) section for the same pattern applied to CIC insights)
 
 ### Important Considerations
 
@@ -164,13 +164,22 @@ Steps:
 Two actions are registered when a home battery is paired:
 
 - **`quatt.get_home_battery_insights`** — Returns the raw 15-minute timeseries (power, charge state, control action/mode). Call without arguments for today, or provide `year` + `month` + `day` for a specific date.
-- **`quatt.get_energy_flow`** — Returns the energy-flow timeseries and aggregated totals (battery charge/discharge, solar, house, grid import/export). The scope is chosen by which fields you provide:
+- **`quatt.get_home_battery_energy_flow`** — Returns the energy-flow timeseries and aggregated totals (battery charge/discharge, solar, house, grid import/export). The scope is chosen by which fields you provide:
   - no fields → today
   - `year` + `month` + `day` → one day
   - `year` + `month` → one month
   - `year` → one year
 
-Both actions mirror the `quatt.get_insights` action used for heat pump insights, so the same [Usage Graph](#quatt-usage-graph-with-apexcharts-optional---beta) pattern (automation + `python_script` + ApexCharts card) can be reused to build home-battery or energy-flow graphs.
+Both actions mirror the `quatt.get_cic_insights` action used for CIC insights, so the same [Usage Graph](#quatt-usage-graph-with-apexcharts-optional---beta) pattern (automation + `python_script` + ApexCharts card) can be reused to build home-battery or energy-flow graphs.
+
+Example files are included in this repository:
+
+- Home battery insights:
+  - Python script: [`examples/set_home_battery_insights.py`](examples/set_home_battery_insights.py)
+  - Automation (today + specific date): [`examples/automation_home_battery_insights.yaml`](examples/automation_home_battery_insights.yaml)
+- Home battery energy flow:
+  - Python script: [`examples/set_home_battery_energy_flow.py`](examples/set_home_battery_energy_flow.py)
+  - Automation (today / day / month / year): [`examples/automation_home_battery_energy_flow.yaml`](examples/automation_home_battery_energy_flow.yaml)
 
 ## Quatt Dashboard Card (Optional - Beta)
 
@@ -232,7 +241,7 @@ The Quatt Dashboard is implemented as a custom Lovelace card which is installed 
 
 ## Quatt Usage Graph with ApexCharts (Optional - Beta)
 
-With the `quatt.get_insights` action it is possible to recreate a Quatt-style **usage graph** (similar to the official app) in Home Assistant.
+With the `quatt.get_cic_insights` action it is possible to recreate a Quatt-style **usage graph** (similar to the official app) in Home Assistant.
 <table>
   <tr>
     <td align="center">
@@ -260,7 +269,7 @@ With the `quatt.get_insights` action it is possible to recreate a Quatt-style **
 <br>
 This setup uses three building blocks that work together:
 
-- The `quatt.get_insights` **action (service)** to fetch detailed usage data from Quatt
+- The `quatt.get_cic_insights` **action (service)** to fetch detailed usage data from Quatt
 - A small **Python script** that stores the retrieved JSON data in a Home Assistant sensor
 - An **ApexCharts custom card** that reads the raw insights sensor and renders a stacked kWh bar chart
 
@@ -272,8 +281,8 @@ This setup uses three building blocks that work together:
 
 All example files are included in this repository:
 
-- Python script: [`examples/set_quatt_insights.py`](examples/set_quatt_insights.py)
-- Automation: [`examples/quatt_insights_today.yaml`](examples/automation_quatt_insights.yaml)
+- Python script: [`examples/set_cic_insights.py`](examples/set_cic_insights.py)
+- Automation: [`examples/automation_cic_insights.yaml`](examples/automation_cic_insights.yaml)
 - ApexCharts charts:
     - Day card: [`examples/apexcharts_quatt_insights_day.yaml`](examples/apexcharts_quatt_insights_day.yaml)
     - Week card: [`examples/apexcharts_quatt_insights_week.yaml`](examples/apexcharts_quatt_insights_week.yaml)
@@ -301,19 +310,19 @@ All example files are included in this repository:
 
 Copy the contents of:
 
-- [`examples/set_quatt_insights.py`](examples/set_quatt_insights.py)
+- [`examples/set_cic_insights.py`](examples/set_cic_insights.py)
 
 into a file called:
 
-- `<HA config>/python_scripts/set_quatt_insights.py`
+- `<HA config>/python_scripts/set_cic_insights.py`
 
-This script creates/updates `sensor.quatt_insights_<day/week/month_year/all>` with the insights data retrieved from the Quatt integration for that specific timeframe.
+This script creates/updates `sensor.quatt_cic_insights_<day/week/month/year/all>` with the insights data retrieved from the Quatt integration for that specific timeframe.
 
 #### Step 2 – Automation: fetch insights once per hour
 
 Import the automation from:
 
-- [`examples/automation_quatt_insights.yaml`](examples/automation_quatt_insights.yaml)
+- [`examples/automation_cic_insights.yaml`](examples/automation_cic_insights.yaml)
 
 Either:
 
@@ -324,9 +333,9 @@ Either:
 This automation:
 
 - Runs on Home Assistant startup and then once per hour
-- Calls `quatt.get_insights` for each timeframe in `periods_to_fetch`
+- Calls `quatt.get_cic_insights` for each timeframe in `periods_to_fetch`
 - Retries up to 3 times until valid data is returned
-- Calls `python_script.set_quatt_insights` to update `sensor.quatt_insights_<day/week/month_year/all>`
+- Calls `python_script.set_cic_insights` to update `sensor.quatt_cic_insights_<day/week/month/year/all>`
 
 By default, the example automation is scheduled to run at **15 minutes past every hour**.
 To help spread load across the Quatt servers, it is recommended to **change the minute value** in the trigger to a value between **13 and 20** that is unique for each installation.
@@ -354,7 +363,7 @@ For instance for the daily usage card use:
 
 - [`examples/apexcharts_quatt_insights_day.yaml`](examples/apexcharts_quatt_insights_day.yaml)
 
-This card displays the daily usage graph similar to the official Quatt app.
+This card displays the daily CIC usage graph similar to the official Quatt app.
 
 ## Sensors
 

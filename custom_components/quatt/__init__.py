@@ -134,6 +134,138 @@ async def async_setup(hass: HomeAssistant, _config):
     return True
 
 
+def _register_services(hass: HomeAssistant) -> None:
+    """Register integration services if not already registered."""
+
+    if not hass.services.has_service(DOMAIN, "get_cic_insights"):
+
+        async def handle_get_cic_insights(call: ServiceCall) -> ServiceResponse:
+            """Handle the get_cic_insights service call."""
+            from_date = call.data.get("from_date")
+            timeframe = call.data.get("timeframe", "all")
+            advanced_insights = call.data.get("advanced_insights", True)
+
+            remote_coordinator = None
+            for coordinators_dict in hass.data[DOMAIN].values():
+                if not isinstance(coordinators_dict, dict):
+                    continue
+                if coordinators_dict.get("cic_remote"):
+                    remote_coordinator = coordinators_dict["cic_remote"]
+                    break
+
+            if not remote_coordinator:
+                LOGGER.error(
+                    "No remote coordinator available for insights service")
+                return {
+                    "error": "No remote connection available. Please configure remote API access."
+                }
+
+            insights_data = await remote_coordinator.client.get_insights(
+                from_date=from_date,
+                timeframe=timeframe,
+                advanced_insights=advanced_insights,
+            )
+
+            if insights_data:
+                return insights_data
+            return {"error": "Failed to fetch insights data"}
+
+        hass.services.async_register(
+            DOMAIN,
+            "get_cic_insights",
+            handle_get_cic_insights,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+    if not hass.services.has_service(DOMAIN, "get_home_battery_insights"):
+
+        async def handle_get_home_battery_insights(
+            call: ServiceCall,
+        ) -> ServiceResponse:
+            """Handle the get_home_battery_insights service call."""
+            year = call.data.get("year")
+            month = call.data.get("month")
+            day = call.data.get("day")
+
+            home_battery_coordinator = None
+            for coordinators_dict in hass.data[DOMAIN].values():
+                if not isinstance(coordinators_dict, dict):
+                    continue
+                if coordinators_dict.get("home_battery"):
+                    home_battery_coordinator = coordinators_dict["home_battery"]
+                    break
+
+            if not home_battery_coordinator:
+                LOGGER.error(
+                    "No home battery coordinator available for insights service"
+                )
+                return {
+                    "error": "No home battery configured. Pair a Quatt home battery first."
+                }
+
+            insights_data = (
+                await home_battery_coordinator.client.get_home_battery_insights(
+                    year=year,
+                    month=month,
+                    day=day,
+                )
+            )
+
+            if insights_data:
+                return insights_data
+            return {"error": "Failed to fetch home battery insights data"}
+
+        hass.services.async_register(
+            DOMAIN,
+            "get_home_battery_insights",
+            handle_get_home_battery_insights,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+    if not hass.services.has_service(DOMAIN, "get_home_battery_energy_flow"):
+
+        async def handle_get_home_battery_energy_flow(
+            call: ServiceCall,
+        ) -> ServiceResponse:
+            """Handle the get_home_battery_energy_flow service call."""
+            year = call.data.get("year")
+            month = call.data.get("month")
+            day = call.data.get("day")
+
+            home_battery_coordinator = None
+            for coordinators_dict in hass.data[DOMAIN].values():
+                if not isinstance(coordinators_dict, dict):
+                    continue
+                if coordinators_dict.get("home_battery"):
+                    home_battery_coordinator = coordinators_dict["home_battery"]
+                    break
+
+            if not home_battery_coordinator:
+                LOGGER.error(
+                    "No home battery coordinator available for energy flow service"
+                )
+                return {
+                    "error": "No home battery configured. Pair a Quatt home battery first."
+                }
+
+            flow_data = await home_battery_coordinator.client.get_energy_flow(
+                year=year,
+                month=month,
+                day=day,
+            )
+
+            if flow_data:
+                return flow_data
+            return {"error": "Failed to fetch energy flow data"}
+
+        hass.services.async_register(
+            DOMAIN,
+            "get_home_battery_energy_flow",
+            handle_get_home_battery_energy_flow,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+
 # https://developers.home-assistant.io/docs/config_entries_index/#setting-up-an-entry
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up this integration using UI."""
@@ -249,130 +381,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
     # Register services (only once, not per config entry)
-    if not hass.services.has_service(DOMAIN, "get_insights"):
-
-        async def handle_get_insights(call: ServiceCall) -> ServiceResponse:
-            """Handle the get_insights service call."""
-            from_date = call.data.get("from_date")
-            timeframe = call.data.get("timeframe", "all")
-            advanced_insights = call.data.get("advanced_insights", True)
-
-            # Find a remote coordinator to use for the service call
-            remote_coordinator = None
-            for coordinators_dict in hass.data[DOMAIN].values():
-                if coordinators_dict.get("cic_remote"):
-                    remote_coordinator = coordinators_dict["cic_remote"]
-                    break
-
-            if not remote_coordinator:
-                LOGGER.error(
-                    "No remote coordinator available for insights service")
-                return {
-                    "error": "No remote connection available. Please configure remote API access."
-                }
-
-            # Get insights data
-            insights_data = await remote_coordinator.client.get_insights(
-                from_date=from_date,
-                timeframe=timeframe,
-                advanced_insights=advanced_insights,
-            )
-
-            if insights_data:
-                return insights_data
-            return {"error": "Failed to fetch insights data"}
-
-        hass.services.async_register(
-            DOMAIN,
-            "get_insights",
-            handle_get_insights,
-            supports_response=SupportsResponse.ONLY,
-        )
-
-    if not hass.services.has_service(DOMAIN, "get_home_battery_insights"):
-
-        async def handle_get_home_battery_insights(
-            call: ServiceCall,
-        ) -> ServiceResponse:
-            """Handle the get_home_battery_insights service call."""
-            year = call.data.get("year")
-            month = call.data.get("month")
-            day = call.data.get("day")
-
-            # Find a home battery coordinator to use for the service call
-            home_battery_coordinator = None
-            for coordinators_dict in hass.data[DOMAIN].values():
-                if coordinators_dict.get("home_battery"):
-                    home_battery_coordinator = coordinators_dict["home_battery"]
-                    break
-
-            if not home_battery_coordinator:
-                LOGGER.error(
-                    "No home battery coordinator available for insights service"
-                )
-                return {
-                    "error": "No home battery configured. Pair a Quatt home battery first."
-                }
-
-            insights_data = (
-                await home_battery_coordinator.client.get_home_battery_insights(
-                    year=year,
-                    month=month,
-                    day=day,
-                )
-            )
-
-            if insights_data:
-                return insights_data
-            return {"error": "Failed to fetch home battery insights data"}
-
-        hass.services.async_register(
-            DOMAIN,
-            "get_home_battery_insights",
-            handle_get_home_battery_insights,
-            supports_response=SupportsResponse.ONLY,
-        )
-
-    if not hass.services.has_service(DOMAIN, "get_energy_flow"):
-
-        async def handle_get_energy_flow(
-            call: ServiceCall,
-        ) -> ServiceResponse:
-            """Handle the get_energy_flow service call."""
-            year = call.data.get("year")
-            month = call.data.get("month")
-            day = call.data.get("day")
-
-            home_battery_coordinator = None
-            for coordinators_dict in hass.data[DOMAIN].values():
-                if coordinators_dict.get("home_battery"):
-                    home_battery_coordinator = coordinators_dict["home_battery"]
-                    break
-
-            if not home_battery_coordinator:
-                LOGGER.error(
-                    "No home battery coordinator available for energy flow service"
-                )
-                return {
-                    "error": "No home battery configured. Pair a Quatt home battery first."
-                }
-
-            flow_data = await home_battery_coordinator.client.get_energy_flow(
-                year=year,
-                month=month,
-                day=day,
-            )
-
-            if flow_data:
-                return flow_data
-            return {"error": "Failed to fetch energy flow data"}
-
-        hass.services.async_register(
-            DOMAIN,
-            "get_energy_flow",
-            handle_get_energy_flow,
-            supports_response=SupportsResponse.ONLY,
-        )
+    _register_services(hass)
 
     return True
 
