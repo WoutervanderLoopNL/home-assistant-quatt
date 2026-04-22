@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+from urllib.parse import urlparse
 
 import voluptuous as vol
 
@@ -38,6 +39,7 @@ from .api_remote_cic import QuattCicRemoteApiClient
 from .api_remote_home_battery import QuattHomeBatteryApiClient
 from .const import (
     CONF_HOME_BATTERY_CHECK_CODE,
+    CONF_HOME_BATTERY_QR_URL,
     CONF_HOME_BATTERY_SERIAL,
     CONF_HOME_BATTERY_UUID,
     CONF_LOCAL_CIC,
@@ -262,6 +264,23 @@ async def _async_get_cic_name(
     return data["system"]["hostName"]
 
 
+def _parse_battery_qr_url(url: str) -> tuple[str, str, str] | None:
+    """Parse battery QR URL and return (uuid, serial, check_code) or None.
+
+    Expected: https://app.quatt.io/battery/{uuid}/{serial}/{checkCode}/{macAddress}
+    """
+    try:
+        parsed = urlparse(url.strip())
+        if parsed.netloc != "app.quatt.io":
+            return None
+        parts = [p for p in parsed.path.split("/") if p]
+        if len(parts) < 4 or parts[0] != "battery":
+            return None
+        return parts[1], parts[2], parts[3]
+    except Exception:  # noqa: BLE001
+        return None
+
+
 # pylint: disable=abstract-method
 class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
     """Config flow for Quatt."""
@@ -374,21 +393,58 @@ class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
     async def async_step_home_battery(
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
-        """Collect home battery pairing details, routing through auth first."""
-        # First visit: route through the shared auth step before asking for
-        # battery-specific details so the Google auth + names are captured once.
+        """Route through auth then show pairing method menu."""
         if not getattr(self, "_home_battery_auth_done", False):
             self._after_auth_step = _AFTER_AUTH_HOME_BATTERY
             self._home_battery_auth_done = True
             return await self.async_step_auth()
 
-        return await self._async_step_home_battery_pair(user_input)
+        return self.async_show_menu(
+            step_id="home_battery",
+            menu_options=["home_battery_qr", "home_battery_manual"],
+        )
 
-    async def _async_step_home_battery_pair(
+    async def async_step_home_battery_qr(
         self, user_input: dict | None = None
     ) -> ConfigFlowResult:
-        """Ask for battery UUID/serial/check-code and complete pairing."""
-        # Ensure static resources are registered for use in the form
+        """Pair via QR code URL (single-field step)."""
+        await _async_register_static_resources(self.hass)
+
+        _errors: dict[str, str] = {}
+        if user_input is not None:
+            qr_url = user_input[CONF_HOME_BATTERY_QR_URL].strip()
+            parsed = _parse_battery_qr_url(qr_url)
+            if parsed is None:
+                _errors[CONF_HOME_BATTERY_QR_URL] = "home_battery_qr_invalid"
+            else:
+                uuid, serial, check_code = parsed
+                error = await self._async_pair_home_battery(uuid, serial, check_code)
+                if error:
+                    _errors["base"] = error
+                else:
+                    return self.async_create_entry(
+                        title=uuid, data={CONF_HOME_BATTERY_SERIAL: serial}
+                    )
+
+        return self.async_show_form(
+            step_id="home_battery_qr",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_HOME_BATTERY_QR_URL,
+                        default=(user_input or {}).get(CONF_HOME_BATTERY_QR_URL, ""),
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+                    ),
+                }
+            ),
+            errors=_errors,
+        )
+
+    async def async_step_home_battery_manual(
+        self, user_input: dict | None = None
+    ) -> ConfigFlowResult:
+        """Pair by entering UUID / serial / check-code manually."""
         await _async_register_static_resources(self.hass)
 
         _errors: dict[str, str] = {}
@@ -397,62 +453,34 @@ class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
             serial = user_input[CONF_HOME_BATTERY_SERIAL].strip()
             check_code = user_input[CONF_HOME_BATTERY_CHECK_CODE].strip()
 
-            # The access-key UUID (already ``BAT-...`` prefixed) serves as the
-            # stable unique id, so the per-hub store key stays uniform with
-            # CIC entries: quatt_remote_storage_{unique_id}.
-            await self.async_set_unique_id(uuid)
-            self._abort_if_unique_id_configured()
-
-            session = async_create_clientsession(self.hass)
-            store = Store(
-                self.hass,
-                STORAGE_VERSION,
-                f"{REMOTE_STORAGE_KEY_PREFIX}_{uuid}",
-            )
-            # Local import to avoid a circular import at module load time.
-            from . import _get_or_create_auth_client  # noqa: PLC0415
-
-            auth = await _get_or_create_auth_client(self.hass)
-            client = QuattHomeBatteryApiClient(
-                session, store=store, auth=auth
-            )
-
-            success = await client.authenticate_and_pair(
-                access_key_uuid=uuid,
-                serial_number=serial,
-                check_code=check_code,
-            )
-            if not success:
-                _errors["base"] = "home_battery_pair_failed"
+            error = await self._async_pair_home_battery(uuid, serial, check_code)
+            if error:
+                _errors["base"] = error
             else:
                 return self.async_create_entry(
-                    title=uuid,
-                    data={
-                        CONF_HOME_BATTERY_SERIAL: serial,
-                    },
+                    title=uuid, data={CONF_HOME_BATTERY_SERIAL: serial}
                 )
 
+        prev = user_input or {}
         return self.async_show_form(
-            step_id="home_battery",
+            step_id="home_battery_manual",
             data_schema=vol.Schema(
                 {
                     vol.Required(
                         CONF_HOME_BATTERY_UUID,
-                        default=(user_input or {}).get(CONF_HOME_BATTERY_UUID, ""),
+                        default=prev.get(CONF_HOME_BATTERY_UUID, ""),
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                     ),
                     vol.Required(
                         CONF_HOME_BATTERY_SERIAL,
-                        default=(user_input or {}).get(CONF_HOME_BATTERY_SERIAL, ""),
+                        default=prev.get(CONF_HOME_BATTERY_SERIAL, ""),
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                     ),
                     vol.Required(
                         CONF_HOME_BATTERY_CHECK_CODE,
-                        default=(user_input or {}).get(
-                            CONF_HOME_BATTERY_CHECK_CODE, ""
-                        ),
+                        default=prev.get(CONF_HOME_BATTERY_CHECK_CODE, ""),
                     ): selector.TextSelector(
                         selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
                     ),
@@ -460,6 +488,35 @@ class QuattFlowHandler(ConfigFlow, domain=DOMAIN):
             ),
             errors=_errors,
         )
+
+    async def _async_pair_home_battery(
+        self, uuid: str, serial: str, check_code: str
+    ) -> str | None:
+        """Attempt pairing via the remote API. Returns an error key or None on success."""
+        # The access-key UUID (already ``BAT-...`` prefixed) serves as the
+        # stable unique id, so the per-hub store key stays uniform with
+        # CIC entries: quatt_remote_storage_{unique_id}.
+        await self.async_set_unique_id(uuid)
+        self._abort_if_unique_id_configured()
+
+        session = async_create_clientsession(self.hass)
+        store = Store(
+            self.hass,
+            STORAGE_VERSION,
+            f"{REMOTE_STORAGE_KEY_PREFIX}_{uuid}",
+        )
+        # Local import to avoid a circular import at module load time.
+        from . import _get_or_create_auth_client  # noqa: PLC0415
+
+        auth = await _get_or_create_auth_client(self.hass)
+        client = QuattHomeBatteryApiClient(session, store=store, auth=auth)
+
+        success = await client.authenticate_and_pair(
+            access_key_uuid=uuid,
+            serial_number=serial,
+            check_code=check_code,
+        )
+        return None if success else "home_battery_pair_failed"
 
     async def async_step_dhcp(
         self, discovery_info: DhcpServiceInfo

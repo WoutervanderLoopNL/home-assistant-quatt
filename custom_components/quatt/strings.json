@@ -35,7 +35,24 @@
             },
             "home_battery": {
                 "title": "Pair with a Quatt home battery",
-                "description": "Set up a Quatt home battery via the mobile API.\nEnter the **UUID**, **serial number** and **check code** found on the battery label.\n\n![Battery pairing label location](/quatt_static/battery_pair.png)",
+                "menu_options": {
+                    "home_battery_qr": "Scan QR code",
+                    "home_battery_manual": "Enter details manually"
+                }
+            },
+            "home_battery_qr": {
+                "title": "Pair via QR code",
+                "description": "Scan the QR code on the battery and paste the URL below.\n\n![Battery QR code label location](/quatt_static/battery_pair.png)",
+                "data": {
+                    "home_battery_qr_url": "QR code URL"
+                },
+                "data_description": {
+                    "home_battery_qr_url": "Scan the QR code and copy the link:\n- **iOS**: long-press the QR suggestion → Copy Link\n- **Android**: Google Lens / camera scan → Copy\n- Any barcode app (ZXing, Binary Eye) that shows the raw text"
+                }
+            },
+            "home_battery_manual": {
+                "title": "Pair manually",
+                "description": "Enter the **UUID**, **serial number** and **check code** found on the battery label.\n\n![Battery pairing label location](/quatt_static/battery_pair.png)",
                 "data": {
                     "home_battery_uuid": "UUID",
                     "home_battery_serial": "Serial number",
@@ -50,6 +67,7 @@
             "auth": "Authentication failed. Please check your credentials.",
             "cannot_connect": "Cannot connect to your local CIC. Check the IP address.",
             "pairing_timeout": "Pairing timeout. Please try again and press the button on the CIC device within 60 seconds.",
+            "home_battery_qr_invalid": "Invalid QR code URL. Make sure to copy the full URL from the battery QR code.",
             "home_battery_pair_failed": "Home battery pairing failed. Please check the access key, serial number and check code.",
             "unknown": "An unexpected error occurred. Please try again."
         },

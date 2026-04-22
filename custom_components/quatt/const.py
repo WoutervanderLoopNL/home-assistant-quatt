@@ -21,6 +21,7 @@ CONF_LOCAL_CIC = "ip_address"
 CONF_HOME_BATTERY_SERIAL = "home_battery_serial"
 CONF_HOME_BATTERY_UUID = "home_battery_uuid"
 CONF_HOME_BATTERY_CHECK_CODE = "home_battery_check_code"
+CONF_HOME_BATTERY_QR_URL = "home_battery_qr_url"
 
 # Remote API URLs (from kwatt)
 FIREBASE_INSTALLATIONS_URL = "https://firebaseinstallations.googleapis.com/v1/projects/quatt-production/installations"
