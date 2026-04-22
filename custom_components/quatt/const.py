@@ -62,9 +62,6 @@ STORAGE_VERSION = 1
 REMOTE_STORAGE_KEY_PREFIX = "quatt_remote_storage"
 REMOTE_AUTH_STORAGE_KEY = f"{REMOTE_STORAGE_KEY_PREFIX}_AUTH"
 
-# Legacy storage key, kept only for the v6 -> v7 migration.
-HOME_BATTERY_STORAGE_KEY = "quatt_home_battery_storage"
-
 # System types
 DUO_HEATPUMP_SYSTEM = "Duo heatpump system"
 ALL_ELECTRIC_SYSTEM = "All electric system"
@@ -108,10 +105,14 @@ DEVICE_LIST = [
         "id": DEVICE_HEAT_CHARGER_ID,
         "kind": QuattDeviceKind.DEVICE,
     },
-    {"name": "Heatpump 1", "id": DEVICE_HEATPUMP_1_ID, "kind": QuattDeviceKind.DEVICE},
-    {"name": "Heatpump 2", "id": DEVICE_HEATPUMP_2_ID, "kind": QuattDeviceKind.DEVICE},
-    {"name": "Thermostat", "id": DEVICE_THERMOSTAT_ID, "kind": QuattDeviceKind.DEVICE},
-    {"name": "Insights", "id": DEVICE_CIC_INSIGHTS_ID, "kind": QuattDeviceKind.SERVICE},
+    {"name": "Heatpump 1", "id": DEVICE_HEATPUMP_1_ID,
+        "kind": QuattDeviceKind.DEVICE},
+    {"name": "Heatpump 2", "id": DEVICE_HEATPUMP_2_ID,
+        "kind": QuattDeviceKind.DEVICE},
+    {"name": "Thermostat", "id": DEVICE_THERMOSTAT_ID,
+        "kind": QuattDeviceKind.DEVICE},
+    {"name": "Insights", "id": DEVICE_CIC_INSIGHTS_ID,
+        "kind": QuattDeviceKind.SERVICE},
     {"name": "Home battery", "id": DEVICE_HOME_BATTERY_ID, "kind": QuattDeviceKind.HUB},
     {
         "name": "Savings",

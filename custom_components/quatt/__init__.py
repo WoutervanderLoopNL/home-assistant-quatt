@@ -47,7 +47,6 @@ from .const import (
     DEFAULT_REMOTE_SCAN_INTERVAL,
     DEVICE_CIC_ID,
     DOMAIN,
-    HOME_BATTERY_STORAGE_KEY,
     LOGGER,
     REMOTE_AUTH_STORAGE_KEY,
     REMOTE_CONF_SCAN_INTERVAL,
@@ -664,11 +663,6 @@ async def _migrate_v6_to_v7(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     Split the per-hub token+id stores into:
       - one shared auth store (REMOTE_AUTH_STORAGE_KEY) with id_token/refresh_token
       - per-hub stores holding only installation_id
-
-    Home battery hubs additionally rename ``installation_uuid`` to
-    ``installation_id`` and move from the legacy
-    ``quatt_home_battery_storage_{unique_id}`` key to the uniform
-    ``quatt_remote_storage_{unique_id}`` layout.
     """
     LOGGER.debug("Migrating config entry from version '%s'",
                  config_entry.version)
@@ -693,35 +687,7 @@ async def _migrate_v6_to_v7(hass: HomeAssistant, config_entry: ConfigEntry) -> b
             {"id_token": id_token, "refresh_token": refresh_token}
         )
 
-    is_home_battery = (
-        CONF_HOME_BATTERY_SERIAL in config_entry.data
-        and CONF_LOCAL_CIC not in config_entry.data
-    )
-
-    if is_home_battery:
-        legacy_store = Store(
-            hass,
-            STORAGE_VERSION,
-            f"{HOME_BATTERY_STORAGE_KEY}_{config_entry.unique_id}",
-        )
-        new_store = Store(
-            hass,
-            STORAGE_VERSION,
-            f"{REMOTE_STORAGE_KEY_PREFIX}_{config_entry.unique_id}",
-        )
-        legacy_data = await legacy_store.async_load() or {}
-        await _promote_auth_tokens(legacy_data)
-        installation_id = (
-            legacy_data.get("installation_id")
-            or legacy_data.get("installation_uuid")
-        )
-        new_payload: dict = {}
-        if installation_id:
-            new_payload["installation_id"] = installation_id
-        await new_store.async_save(new_payload)
-        # Drop the legacy store so the old tokens don't linger on disk.
-        await legacy_store.async_remove()
-    elif CONF_REMOTE_CIC in config_entry.data:
+    if CONF_REMOTE_CIC in config_entry.data:
         # CIC store already uses the REMOTE_STORAGE_KEY_PREFIX + unique_id
         # layout; we only need to strip tokens out of it.
         store = Store(
