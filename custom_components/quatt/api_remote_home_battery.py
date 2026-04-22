@@ -40,7 +40,8 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         self._installation_id: str | None = installation_id
         # Cache for today's insights: (expires_at, payload). Avoids hammering
         # the insights endpoint on every short status-poll tick.
-        self._today_insights_cache: tuple[datetime, dict[str, Any]] | None = None
+        self._today_insights_cache: tuple[datetime,
+                                          dict[str, Any]] | None = None
         # Same idea for the day-level energy flow payload.
         self._today_energy_flow_cache: (
             tuple[datetime, dict[str, Any]] | None
@@ -132,7 +133,8 @@ class QuattHomeBatteryApiClient(QuattApiClient):
         result = data.get("result") or {}
         installation_id = result.get("installationUuid")
         if not installation_id:
-            _LOGGER.error("Home battery pair returned no installationUuid: %s", data)
+            _LOGGER.error(
+                "Home battery pair returned no installationUuid: %s", data)
             return None
         return installation_id
 
@@ -386,7 +388,7 @@ def _summarize_today_insights(raw: Any) -> dict[str, Any] | None:
         if not isinstance(entry, dict):
             continue
         power_kw = entry.get("powerInKW")
-        if isinstance(power_kw, (int, float)):
+        if isinstance(power_kw, (int | float)):
             # Each entry covers 15 minutes = 0.25h
             energy_kwh = float(power_kw) * 0.25
             if energy_kwh > 0:
@@ -397,7 +399,7 @@ def _summarize_today_insights(raw: Any) -> dict[str, Any] | None:
                 peak_discharge_kw = max(peak_discharge_kw, -float(power_kw))
 
         charge_state = entry.get("chargeState")
-        if isinstance(charge_state, (int, float)):
+        if isinstance(charge_state, (int | float)):
             charge_states.append(int(charge_state))
 
         timestamp = entry.get("timestamp")
