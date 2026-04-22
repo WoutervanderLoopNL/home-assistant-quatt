@@ -6,4 +6,6 @@ new_state = data.get("new_state", "ok")
 if not insights:
     logger.warning("set_home_battery_insights: no insights data provided")
 else:
+    if not isinstance(insights, str):
+        insights = str(insights)
     hass.states.set(entity_id, new_state, {"insights_json": insights})
